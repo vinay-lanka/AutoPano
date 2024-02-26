@@ -135,9 +135,9 @@ def RANSAC(matches):
                   max_inliers = num_inlier_points
                   best_inlier_indices = inlier_indices
                   best_homography = homography
-      #img1_points = img1_matches[best_inlier_indices].astype(np.float32)
-      #img2_points = img2_matches[best_inlier_indices].astype(np.float32)
-      #best_homography,_ = cv2.findHomography(img1_points,img2_points)
+      img1_points = img1_matches[best_inlier_indices].astype(np.float32)
+      img2_points = img2_matches[best_inlier_indices].astype(np.float32)
+      best_homography,_ = cv2.findHomography(img1_points,img2_points)
       #print(best_homography)
       return best_homography, best_inlier_indices
 
