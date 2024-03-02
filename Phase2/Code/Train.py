@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 """
 RBE/CS Fall 2022: Classical and Deep Learning Approaches for
@@ -7,9 +7,17 @@ Project 1: MyAutoPano: Phase 2 Starter Code
 
 
 Author(s):
-Lening Li (lli4@wpi.edu)
-Teaching Assistant in Robotics Engineering,
-Worcester Polytechnic Institute
+Mayank Deshpande (msdeshp4@umd.edu)
+M.Eng. in Robotics,
+University of Maryland, College Park
+
+Vikram Setty (msdeshp4@umd.edu)
+M.Eng. in Robotics,
+University of Maryland, College Park
+
+Vinay Lanka (msdeshp4@umd.edu)
+M.Eng. in Robotics,
+University of Maryland, College Park
 """
 
 
@@ -21,9 +29,12 @@ Worcester Polytechnic Institute
 import torch
 import torchvision
 from torch.utils.tensorboard import SummaryWriter
-from torchvision import datasets, transforms
-from torch.optim import AdamW
-from Network.Network import HomographyModel
+from torch.utils.data import Dataset
+from torchvision import datasets
+from torchvision import transforms as tf
+from torch.optim import AdamW, SGD, Adam
+from Network.Network import *
+from Wrapper import *
 import cv2
 import sys
 import os
@@ -44,12 +55,40 @@ from torchvision.transforms import ToTensor
 import argparse
 import shutil
 import string
+from torch.utils.data.dataloader import DataLoader
+from torch.utils.data import random_split
 from termcolor import colored, cprint
 import math as m
+from random import choice
 from tqdm import tqdm
 
+if torch.cuda.is_available():
+    device = torch.device("cuda")
+else:
+    device = torch.device("cpu")
+print(f"Running on device: {device}")
 
-def GenerateBatch(BasePath, DirNamesTrain, TrainCoordinates, ImageSize, MiniBatchSize):
+class YourDataset(Dataset):
+
+    def __init__(self, x_train, y_train, transform=None):
+        self.x_train = x_train
+        self.y_train = y_train
+        self.transform = transform
+    
+    def __len__(self):
+        return len(self.x_train)
+
+    def __getitem__(self, idx):
+
+        x = self.x_train[idx]
+        y = self.y_train[idx]
+
+        if self.transform:
+            x = self.transform(x)
+
+        return x, y
+
+def GenerateBatch(BasePath, MiniBatchSize, Val): #DirNamesTrain, TrainCoordinates, ImageSize,
     """
     Inputs:
     BasePath - Path to COCO folder without "/" at the end
@@ -65,26 +104,101 @@ def GenerateBatch(BasePath, DirNamesTrain, TrainCoordinates, ImageSize, MiniBatc
     """
     I1Batch = []
     CoordinatesBatch = []
+    # ImageNum = 0
+    # while ImageNum < MiniBatchSize:
+        # ImageNum += 1
 
-    ImageNum = 0
-    while ImageNum < MiniBatchSize:
         # Generate random image
-        RandIdx = random.randint(0, len(DirNamesTrain) - 1)
+    print("Generating Data!!")
+    orignal_img_fpath = os.path.join(BasePath, f"train_dataset/patch_a")
+    warped_img_fpath = os.path.join(BasePath, f"train_dataset/patches_warped")
+    if os.path.exists(orignal_img_fpath): 
+        image_list = os.listdir(orignal_img_fpath)
+    else:
+        raise Exception ("Directory Image1 doesn't exist")
+    
+    # RandIdx = random.randint(1, len(image_list)-1)
+    orig_path = []
+    warped_path = []
+    for i in range(len(image_list)):
+        orig_img_path = os.path.join(orignal_img_fpath,image_list[i])
+        warped_img_path = os.path.join(warped_img_fpath,image_list[i])
+        orig_path.append(orig_img_path)
+        warped_path.append(warped_img_path)
 
-        RandImageName = BasePath + os.sep + DirNamesTrain[RandIdx] + ".jpg"
-        ImageNum += 1
+    img1 = [cv2.imread(i, cv2.IMREAD_GRAYSCALE) for i in orig_path]
+    img2 = [cv2.imread(i, cv2.IMREAD_GRAYSCALE) for i in warped_path]
+    origset = np.array(img1)
+    warpedset = np.array(img2)
 
-        ##########################################################
-        # Add any standardization or data augmentation here!
-        ##########################################################
-        I1 = np.float32(cv2.imread(RandImageName))
-        Coordinates = TrainCoordinates[RandIdx]
-
+    for i in range(0, len(origset)):
+        img1 = origset[i]
+        img1 = np.expand_dims(img1, 2)
+        img2 = warpedset[i]
+        img2 = np.expand_dims(img2, 2)
+        IMG = np.concatenate((img1, img2), axis = 2)
+        I1Batch.append(torch.from_numpy(IMG))
+        label = np.genfromtxt('Phase2/Data/train_dataset/H_4points/' + str(i+1) + '.txt', delimiter=',')
+        CoordinatesBatch.append(torch.from_numpy(label))
         # Append All Images and Mask
-        I1Batch.append(torch.from_numpy(I1))
-        CoordinatesBatch.append(torch.tensor(Coordinates))
+        # I = np.transpose(I, (2, 0, 1))
+        # I1Batch.append(torch.from_numpy(IMG))
+        # CoordinatesBatch.append(torch.from_numpy(label))
 
-    return torch.stack(I1Batch), torch.stack(CoordinatesBatch)
+    # Generating validation batch
+    if Val:
+        val_patch_path = os.path.join(BasePath, f"val_dataset/patch_a")
+        val_warped_path = os.path.join(BasePath, f"val_dataset/patches_warped")
+        if os.path.exists(val_patch_path): 
+            imgs_list = os.listdir(val_patch_path)
+        else:
+            raise Exception ("Directory Image1 doesn't exist")
+        
+        images1_path = []
+        images2_path = []
+        for i in range(len(imgs_list)):
+            I1 = os.path.join(val_patch_path,imgs_list[i])
+            I2 = os.path.join(val_warped_path,imgs_list[i])
+            images1_path.append(I1)
+            images2_path.append(I2)
+
+        image1 = [cv2.imread(i,0) for i in images1_path]
+        image2 = [cv2.imread(i,0) for i in images2_path]
+        trainsetA = np.array(image1)
+        trainsetB = np.array(image2)
+        val_batch = []
+        val_labels = []
+        count = 0
+        for i in range(0,len(trainsetA)):
+
+            count+=1
+            img1 = trainsetA[i]
+            img1 = np.expand_dims(img1, 2)
+            img2 = trainsetB[i]
+            img2 = np.expand_dims(img2, 2)
+            img = np.concatenate((img1, img2), axis = 2)
+            # print(img.shape)
+            # img = np.transpose(img, (2, 0, 1))
+            val_batch.append(torch.from_numpy(img))
+            val_label = np.genfromtxt('Phase2/Data/val_dataset/H_4points/' + str(i+1) + '.txt', delimiter=',')
+            val_labels.append(torch.from_numpy(val_label))
+            
+    
+        print("returning val")
+        val_batch = torch.stack(val_batch)
+        val_batch = val_batch.to(torch.float32)
+        val_dataset = [val_batch, torch.stack(val_labels)]
+        val_dataset = YourDataset(val_batch, torch.stack(val_labels))
+        val_loader = DataLoader(val_dataset, batch_size=1)
+        return val_loader #val_batch, torch.stack(val_labels)
+    else:
+        print("returning train")
+        I1Batch = torch.stack(I1Batch)
+        I1Batch = I1Batch.to(torch.float32)
+        # train_dataset = [I1Batch, torch.stack(CoordinatesBatch)]
+        train_dataset = YourDataset(I1Batch, torch.stack(CoordinatesBatch))
+        train_loader = DataLoader(train_dataset, batch_size=MiniBatchSize, shuffle = True)
+        return train_loader #I1Batch, torch.stack(CoordinatesBatch)
 
 
 def PrettyPrint(NumEpochs, DivTrain, MiniBatchSize, NumTrainSamples, LatestFile):
@@ -103,7 +217,6 @@ def TrainOperation(
     DirNamesTrain,
     TrainCoordinates,
     NumTrainSamples,
-    ImageSize,
     NumEpochs,
     MiniBatchSize,
     SaveCheckPoint,
@@ -120,7 +233,6 @@ def TrainOperation(
     DirNamesTrain - Variable with Subfolder paths to train files
     TrainCoordinates - Coordinates corresponding to Train/Test
     NumTrainSamples - length(Train)
-    ImageSize - Size of the image
     NumEpochs - Number of passes through the Train data
     MiniBatchSize is the size of the MiniBatch
     SaveCheckPoint - Save checkpoint every SaveCheckPoint iteration in every epoch, checkpoint saved automatically after every epoch
@@ -136,10 +248,7 @@ def TrainOperation(
     # Predict output with forward pass
     model = HomographyModel()
 
-    ###############################################
-    # Fill your optimizer of choice here!
-    ###############################################
-    Optimizer = ...
+    Optimizer = Adam(model.parameters(), lr=0.005)
 
     # Tensorboard
     # Create a summary to monitor loss tensor
@@ -154,24 +263,34 @@ def TrainOperation(
     else:
         StartEpoch = 0
         print("New model initialized....")
-
+    train_loader = GenerateBatch(
+            BasePath, MiniBatchSize, Val=False
+        )
+    train_loss = []
+    validation_loss = []
     for Epochs in tqdm(range(StartEpoch, NumEpochs)):
-        NumIterationsPerEpoch = int(NumTrainSamples / MiniBatchSize / DivTrain)
-        for PerEpochCounter in tqdm(range(NumIterationsPerEpoch)):
-            I1Batch, CoordinatesBatch = GenerateBatch(
-                BasePath, DirNamesTrain, TrainCoordinates, ImageSize, MiniBatchSize
-            )
-
-            # Predict output with forward pass
-            PredicatedCoordinatesBatch = model(I1Batch)
-            LossThisBatch = LossFn(PredicatedCoordinatesBatch, CoordinatesBatch)
-
+        # NumIterationsPerEpoch = int(NumTrainSamples / MiniBatchSize / DivTrain)
+        # for PerEpochCounter in tqdm(range(NumIterationsPerEpoch)):
+        
+        # Predict output with forward pass
+        model.train()
+        train_losses = []
+        # print(I1Batch.shape)
+        PerEpochCounter = 0
+        for Batch in train_loader:
+            PerEpochCounter += 1
+            # print(Batch.shape)
+            Image, Label = Batch
+            PredicatedCoordinatesBatch = model(Image)
+            LossThisBatch = LossFn(PredicatedCoordinatesBatch, Label)
+            train_losses.append(LossThisBatch)
             Optimizer.zero_grad()
             LossThisBatch.backward()
             Optimizer.step()
 
             # Save checkpoint every some SaveCheckPoint's iterations
             if PerEpochCounter % SaveCheckPoint == 0:
+
                 # Save the Model learnt in this epoch
                 SaveName = (
                     CheckPointPath
@@ -192,15 +311,26 @@ def TrainOperation(
                 )
                 print("\n" + SaveName + " Model Saved...")
 
-            result = model.validation_step(Batch)
-            # Tensorboard
-            Writer.add_scalar(
-                "LossEveryIter",
-                result["val_loss"],
-                Epochs * NumIterationsPerEpoch + PerEpochCounter,
+        model.eval()
+        with torch.no_grad():
+            val_loader = GenerateBatch(
+                BasePath, MiniBatchSize=1, Val=True
             )
-            # If you don't flush the tensorboard doesn't update until a lot of iterations!
-            Writer.flush()
+            result = [model.validation(val_batch, val_labels) for val_batch, val_labels in val_loader]
+            result = model.validation_epoch_end(result)
+            result['train_loss'] = torch.stack(train_losses).mean().item()
+            validation_loss.append(result['val_loss'])
+            train_loss.append(result['train_loss'])
+            # result = model.validation(val_batch, val_labels)
+
+        # Write validation losses to tensorboard
+        Writer.add_scalar(
+            "LossEveryEpoch",
+            result["val_loss"],
+            Epochs,
+        )
+        # If you don't flush the tensorboard doesn't update until a lot of iterations!
+        Writer.flush()
 
         # Save model every epoch
         SaveName = CheckPointPath + str(Epochs) + "model.ckpt"
@@ -214,7 +344,15 @@ def TrainOperation(
             SaveName,
         )
         print("\n" + SaveName + " Model Saved...")
+    return train_loss, validation_loss
 
+def plot_train_losses(train):
+    plt.plot(train, '-x', label =  'TrainSet')
+    plt.xlabel('epoch')
+    plt.ylabel('Loss')
+    plt.legend(ncol=2, loc="upper right")
+    plt.title('Loss vs. No. of epochs')
+    plt.savefig("loss.png")
 
 def main():
     """
@@ -227,12 +365,12 @@ def main():
     Parser = argparse.ArgumentParser()
     Parser.add_argument(
         "--BasePath",
-        default="/home/lening/workspace/rbe549/YourDirectoryID_p1/Phase2/Data",
+        default='Phase2/Data/',
         help="Base path of images, Default:/home/lening/workspace/rbe549/YourDirectoryID_p1/Phase2/Data",
     )
     Parser.add_argument(
         "--CheckPointPath",
-        default="../Checkpoints/",
+        default="Phase2/Checkpoints/",
         help="Path to save Checkpoints, Default: ../Checkpoints/",
     )
 
@@ -244,7 +382,7 @@ def main():
     Parser.add_argument(
         "--NumEpochs",
         type=int,
-        default=50,
+        default=10,
         help="Number of Epochs to Train for, Default:50",
     )
     Parser.add_argument(
@@ -256,7 +394,7 @@ def main():
     Parser.add_argument(
         "--MiniBatchSize",
         type=int,
-        default=1,
+        default=64,
         help="Size of the MiniBatch to use, Default:1",
     )
     Parser.add_argument(
@@ -267,7 +405,7 @@ def main():
     )
     Parser.add_argument(
         "--LogsPath",
-        default="Logs/",
+        default="Phase2/Logs/",
         help="Path to save Logs for Tensorboard, Default=Logs/",
     )
 
@@ -300,11 +438,10 @@ def main():
     # Pretty print stats
     PrettyPrint(NumEpochs, DivTrain, MiniBatchSize, NumTrainSamples, LatestFile)
 
-    TrainOperation(
+    train_loss, val_loss = TrainOperation(
         DirNamesTrain,
         TrainCoordinates,
         NumTrainSamples,
-        ImageSize,
         NumEpochs,
         MiniBatchSize,
         SaveCheckPoint,
@@ -315,7 +452,7 @@ def main():
         LogsPath,
         ModelType,
     )
-
+    plot_train_losses(train_loss)
 
 if __name__ == "__main__":
     main()

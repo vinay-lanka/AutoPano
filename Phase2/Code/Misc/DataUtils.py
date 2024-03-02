@@ -40,7 +40,7 @@ def SetupAll(BasePath, CheckPointPath):
     DirNamesTrain = SetupDirNames(BasePath)
 
     # Read and Setup Labels
-    LabelsPathTrain = './TxtFiles/LabelsTrain.txt'
+    LabelsPathTrain = 'Phase2/Code/TxtFiles/LabelsTrain.txt'
     TrainLabels = ReadLabels(LabelsPathTrain)
 
     # If CheckPointPath doesn't exist make the path
@@ -88,7 +88,7 @@ def SetupDirNames(BasePath):
     Outputs:
     Writes a file ./TxtFiles/DirNames.txt with full path to all image files without extension
     """
-    DirNamesTrain = ReadDirNames("./TxtFiles/DirNamesTrain.txt")
+    DirNamesTrain = ReadDirNames("Phase2/Code/TxtFiles/DirNamesTrain.txt")
 
     return DirNamesTrain
 

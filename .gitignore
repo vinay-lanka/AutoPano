@@ -155,7 +155,12 @@ cython_debug/
 Draft/
 Phase1/Data/
 Phase2/Data/
+<<<<<<< HEAD
 Phase2/Logs
+=======
+Phase2/Checkpoints
+Logs
+>>>>>>> 60ea1c0 (Phase 2 changes)
 # PyCharm
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
 #  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore

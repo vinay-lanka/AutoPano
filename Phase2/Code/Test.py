@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
 RBE/CS Fall 2022: Classical and Deep Learning Approaches for
 Geometric Computer Vision
@@ -6,9 +6,17 @@ Project 1: MyAutoPano: Phase 2 Starter Code
 
 
 Author(s):
-Lening Li (lli4@wpi.edu)
-Teaching Assistant in Robotics Engineering,
-Worcester Polytechnic Institute
+Mayank Deshpande (msdeshp4@umd.edu)
+M.Eng. in Robotics,
+University of Maryland, College Park
+
+Vikram Setty (msdeshp4@umd.edu)
+M.Eng. in Robotics,
+University of Maryland, College Park
+
+Vinay Lanka (msdeshp4@umd.edu)
+M.Eng. in Robotics,
+University of Maryland, College Park
 """
 
 
@@ -25,9 +33,9 @@ from skimage import data, exposure, img_as_float
 import matplotlib.pyplot as plt
 import numpy as np
 import time
-from torchvision.transforms import ToTensor
+import torchvision.transforms as tf
 import argparse
-from Network.Network import HomographyModel
+from Network.Network import *
 import shutil
 import string
 import math as m
@@ -36,177 +44,101 @@ from tqdm import tqdm
 import torch
 
 
+
 # Don't generate pyc codes
 sys.dont_write_bytecode = True
 
 
-def SetupAll():
-    """
-    Outputs:
-    ImageSize - Size of the Image
-    """
-    # Image Input Shape
-    ImageSize = [32, 32, 3]
+def generate_test_data():
 
-    return ImageSize
+    i = 4
+    img = cv2.imread('Phase2/Data/Train/' + str(i) + '.jpg',0)
+    I = cv2.resize(img, (320, 240))
+    x,y = img.shape
+    width = 128
+    height = 128
+    perturbation = 16
+    patch_x = random.randint(perturbation, x-width-perturbation)
+    patch_y = random.randint(perturbation, y-height-perturbation)
+    patch_A = I[patch_x : patch_x + width, patch_y : patch_y + height]
+    patch_a_corners = np.array([[patch_y, patch_x], [patch_y, patch_x + width], [patch_y + height, patch_x + width], [patch_y + height, patch_x]], dtype=np.float32)
+    # plt.imshow(patch_A)
+    # plt.show()
+    
+    p1 = np.array([[0, 0], [0, x], [y, x], [y, 0]]).reshape(-1,1,2)
 
+    pert_x = np.array(random.sample(range(-perturbation, perturbation), 4)).reshape(4,1)
+    pert_y = np.array(random.sample(range(-perturbation, perturbation), 4)).reshape(4,1)
+    pert_mat = np.hstack([pert_x, pert_y])
 
-def StandardizeInputs(Img):
-    ##########################################################################
-    # Add any standardization or cropping/resizing if used in Training here!
-    ##########################################################################
-    return Img
+    warped_corners = patch_a_corners + pert_mat
 
+    H_AB = cv2.getPerspectiveTransform(np.float32(patch_a_corners), np.float32(warped_corners))
+    H_BA = np.linalg.inv(H_AB)
+    p2  = cv2.perspectiveTransform(np.float32(p1), H_BA)
+    [xmin, ymin] = np.int32(p2.min(axis=0).ravel())
+    [xmax, ymax] = np.int32(p2.max(axis=0).ravel())
+    i = [-xmin,-ymin]
+    T = np.array([[1,0,i[0]],[0,1,i[1]],[0,0,1]])
+    warp_img = cv2.warpPerspective(I, T.dot(H_BA), (xmax-xmin, ymax-ymin),flags = cv2.INTER_LINEAR)
+    warped_patch = warp_img[patch_x + i[1] : patch_x + width + i[1], patch_y + i[0] : patch_y + height + i[0]]
+    # plt.imshow(warp_img)
+    # plt.show()
+    plt.imshow(warped_patch)
+    plt.show()
+    return patch_A, warped_patch, patch_a_corners, warped_corners, warp_img, i
 
-def ReadImages(Img):
-    """
-    Outputs:
-    I1Combined - I1 image after any standardization and/or cropping/resizing to ImageSize
-    I1 - Original I1 image for visualization purposes only
-    """
-    I1 = Img
+def input(img1, img2):
+    img1 = np.expand_dims(img1, 2)
+    img2 = np.expand_dims(img2, 2)
+    transformImg=tf.Compose([tf.ToTensor()])
+    I = np.concatenate((img1, img2), axis = 2)
+    I = np.transpose(I, (0, 2, 1))
+    I = transformImg(I)
+    I = I.unsqueeze(0)
+    return I
 
-    if I1 is None:
-        # OpenCV returns empty list if image is not read!
-        print("ERROR: Image I1 cannot be read")
-        sys.exit()
-
-    I1S = StandardizeInputs(np.float32(I1))
-
-    I1Combined = np.expand_dims(I1S, axis=0)
-
-    return I1Combined, I1
-
-
-def TestOperation(ImageSize, ModelPath, TestSet, LabelsPathPred):
-    """
-    Inputs:
-    ImageSize is the size of the image
-    ModelPath - Path to load trained model from
-    TestSet - The test dataset
-    LabelsPathPred - Path to save predictions
-    Outputs:
-    Predictions written to /content/data/TxtFiles/PredOut.txt
-    """
-    # Predict output with forward pass, MiniBatchSize for Test is 1
-    model = CIFAR10Model(InputSize=3 * 32 * 32, OutputSize=10)
-
+def Test_operation(Img, ModelPath):
+    model = HomographyModel()
     CheckPoint = torch.load(ModelPath)
-    model.load_state_dict(CheckPoint["model_state_dict"])
-    print(
-        "Number of parameters in this model are %d " % len(model.state_dict().items())
-    )
+    model.load_state_dict(CheckPoint['model_state_dict'])
+    model.eval()
+    H4PT = model(Img)
+    H4PT = H4PT.squeeze(0)
+    return H4PT
 
-    OutSaveT = open(LabelsPathPred, "w")
+def predicted_patch(H4PT_pred, patch_a_corners):
+    pred_warped_corners = patch_a_corners - H4PT_pred
+    return pred_warped_corners
 
-    for count in tqdm(range(len(TestSet))):
-        Img, Label = TestSet[count]
-        Img, ImgOrg = ReadImages(Img)
-        PredT = torch.argmax(model(Img)).item()
-
-        OutSaveT.write(str(PredT) + "\n")
-    OutSaveT.close()
-
-
-def Accuracy(Pred, GT):
-    """
-    Inputs:
-    Pred are the predicted labels
-    GT are the ground truth labels
-    Outputs:
-    Accuracy in percentage
-    """
-    return np.sum(np.array(Pred) == np.array(GT)) * 100.0 / len(Pred)
-
-
-def ReadLabels(LabelsPathTest, LabelsPathPred):
-    if not (os.path.isfile(LabelsPathTest)):
-        print("ERROR: Test Labels do not exist in " + LabelsPathTest)
-        sys.exit()
-    else:
-        LabelTest = open(LabelsPathTest, "r")
-        LabelTest = LabelTest.read()
-        LabelTest = map(float, LabelTest.split())
-
-    if not (os.path.isfile(LabelsPathPred)):
-        print("ERROR: Pred Labels do not exist in " + LabelsPathPred)
-        sys.exit()
-    else:
-        LabelPred = open(LabelsPathPred, "r")
-        LabelPred = LabelPred.read()
-        LabelPred = map(float, LabelPred.split())
-
-    return LabelTest, LabelPred
-
-
-def ConfusionMatrix(LabelsTrue, LabelsPred):
-    """
-    LabelsTrue - True labels
-    LabelsPred - Predicted labels
-    """
-
-    # Get the confusion matrix using sklearn.
-    LabelsTrue, LabelsPred = list(LabelsTrue), list(LabelsPred)
-    cm = confusion_matrix(
-        y_true=LabelsTrue, y_pred=LabelsPred  # True class for test-set.
-    )  # Predicted class.
-
-    # Print the confusion matrix as text.
-    for i in range(10):
-        print(str(cm[i, :]) + " ({0})".format(i))
-
-    # Print the class-numbers for easy reference.
-    class_numbers = [" ({0})".format(i) for i in range(10)]
-    print("".join(class_numbers))
-
-    print("Accuracy: " + str(Accuracy(LabelsPred, LabelsTrue)), "%")
-
+def corners(img, warped_corners, pred_warped_corners, t):
+    cv2.polylines(img, [warped_corners + t], isClosed = True, color = (255,0,0), thickness = 2)
+    cv2.polylines(img, [pred_warped_corners + t], isClosed = True, color = (0,255,0), thickness = 2)
+    cv2.imshow('img', img)
+    cv2.waitKey()
 
 def main():
-    """
-    Inputs:
-    None
-    Outputs:
-    Prints out the confusion matrix with accuracy
-    """
 
     # Parse Command Line arguments
     Parser = argparse.ArgumentParser()
     Parser.add_argument(
         "--ModelPath",
         dest="ModelPath",
-        default="/home/chahatdeep/Downloads/Checkpoints/144model.ckpt",
+        default="Phase2/Checkpoints/2a4900model.ckpt",
         help="Path to load latest model from, Default:ModelPath",
-    )
-    Parser.add_argument(
-        "--BasePath",
-        dest="BasePath",
-        default="/home/chahatdeep/Downloads/aa/CMSC733HW0/CIFAR10/Test/",
-        help="Path to load images from, Default:BasePath",
-    )
-    Parser.add_argument(
-        "--LabelsPath",
-        dest="LabelsPath",
-        default="./TxtFiles/LabelsTest.txt",
-        help="Path of labels file, Default:./TxtFiles/LabelsTest.txt",
     )
     Args = Parser.parse_args()
     ModelPath = Args.ModelPath
-    BasePath = Args.BasePath
-    LabelsPath = Args.LabelsPath
 
-    # Setup all needed parameters including file reading
-    ImageSize, DataPath = SetupAll(BasePath)
+    patch_A, warped_patch, patch_a_corners, warped_corners, warped_img, t = generate_test_data()
+    input_img = input(patch_A, warped_patch)
+    H4PT_pred = Test_operation(input_img, ModelPath)
 
-    # Define PlaceHolder variables for Input and Predicted output
-    ImgPH = tf.placeholder("float", shape=(1, ImageSize[0], ImageSize[1], 3))
-    LabelsPathPred = "./TxtFiles/PredOut.txt"  # Path to save predicted labels
-
-    TestOperation(ImgPH, ImageSize, ModelPath, DataPath, LabelsPathPred)
-
-    # Plot Confusion Matrix
-    LabelsTrue, LabelsPred = ReadLabels(LabelsPath, LabelsPathPred)
-    ConfusionMatrix(LabelsTrue, LabelsPred)
+    H4PT_pred = H4PT_pred.detach().numpy()
+    H4PT_pred = np.reshape(H4PT_pred, (4,2), order = 'F')
+    pred_warped_corners = predicted_patch(H4PT_pred, patch_a_corners)
+    pred_warped_corners = pred_warped_corners.astype(int)
+    corners(warped_img, warped_corners, pred_warped_corners, t)
 
 
 if __name__ == "__main__":
