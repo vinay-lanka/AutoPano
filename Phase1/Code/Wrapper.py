@@ -1,124 +1,124 @@
 #!/usr/bin/env python3
 
 """
-CMSC733 Spring 2019: Classical and Deep Learning Approaches for
+RBE/CS Fall 2022: Classical and Deep Learning Approaches for
 Geometric Computer Vision
-Project1: MyAutoPano: Phase 1 Starter Code
+Project 1: MyAutoPano: Phase 2 Starter Code
 
-Author(s): 
-Chahat Deep Singh (chahat@terpmail.umd.edu) 
-PhD Student in Computer Science,
-University of Maryland, College Park
 
-Nitin J. Sanket (nitinsan@terpmail.umd.edu)
-PhD Candidate in Computer Science,
-University of Maryland, College Park
+Author(s):
+Lening Li (lli4@wpi.edu)
+Teaching Assistant in Robotics Engineering,
+Worcester Polytechnic Institute
 """
 
 # Code starts here:
-
-import numpy as np
-import matplotlib.pyplot as plt
-import cv2
-from skimage.feature import peak_local_max
 # Add any python libraries here
+from ast import Pass
+import os
+import shutil
+import numpy as np
+import cv2
+import sys
+import matplotlib.pyplot as plt
+from matplotlib import image
+import scipy.ndimage
+import math
+import copy
+import random
+from numba import jit
+import argparse
 
-harris_max_ratio = 0.01
-harris_block_size = 2
-harris_sobel_aperture = 3
-harris_kvalue = 0.001
-anms_N_best = 350
-descriptor_patch_size = 40
-SSD_ratio_threshold = 0.99
-num_ransac_iterations = 5000
-homography_inlier_threshold = 5
 
-def detect_corners(rgb_img):
-      gray_img = cv2.cvtColor(rgb_img.copy(),cv2.COLOR_BGR2GRAY).astype(np.float32)
-      corners_info = cv2.cornerHarris(gray_img,harris_block_size,harris_sobel_aperture,harris_kvalue)
-      corners_info[corners_info < harris_max_ratio*corners_info.max()] = 0
-      corner_locations = np.where(corners_info > 0)
-      img_with_corners = rgb_img.copy()
-      img_with_corners[corner_locations] = np.array([255,0,0])
-      return (corners_info,corner_locations,img_with_corners)
 
-def adaptive_non_max_supression(rgb_img,corners_info):
-      strong_corner_coords = peak_local_max(corners_info,min_distance=5)
-      #print(strong_corner_coords.shape)
-      N_strong = strong_corner_coords.shape[0]
-      r_values = np.inf*np.ones((N_strong))
-      for i in range(N_strong):
-            for j in range(N_strong):
-                  x_i, y_i = strong_corner_coords[i]
-                  x_j, y_j = strong_corner_coords[j]
-                  ED = r_values[i]
-                  if corners_info[x_i,y_i] < corners_info[x_j,y_j]:
-                        ED = (strong_corner_coords[j,1]-strong_corner_coords[i,1])**2 + (strong_corner_coords[j,0]-strong_corner_coords[i,1])**0
-                  if r_values[i] > ED:
-                        r_values[i] = ED
-      N_best_indices = np.flip(np.argsort(r_values))[0:min(anms_N_best,N_strong)]
-      anms_corner_locations = np.array([(int(strong_corner_coords[i][0]),int(strong_corner_coords[i][1])) for i in N_best_indices])
-      img_with_anms_corners = rgb_img.copy()
-      for i in range(min(anms_N_best,N_strong)):
-            #img_with_anms_corners[int(anms_corner_locations[i][0]),int(anms_corner_locations[i][1]),:] = np.array([255,0,0])
-            cv2.circle(img_with_anms_corners,(anms_corner_locations[i][1],anms_corner_locations[i][0]),2,(255,0,0),-1)
-      return (anms_corner_locations,img_with_anms_corners)
+def harriscorners(img, img_g):
+	img_g = np.float32(img_g)
+	dst = cv2.cornerHarris(img_g, 2,3, 0.04)
+	img_h = cv2.dilate(dst, None, iterations = 2)
 
-def corner_feature_descriptors(rgb_img,anms_corner_locations):
-      gray_img = cv2.cvtColor(rgb_img.copy(),cv2.COLOR_BGR2GRAY)
-      feature_descriptor = []
-      for loc in anms_corner_locations:
-            if(loc[0]<=descriptor_patch_size//2 or loc[0]>=gray_img.shape[0]-descriptor_patch_size//2 or loc[1]<=descriptor_patch_size//2 or loc[1]>=gray_img.shape[1]-descriptor_patch_size//2):
-                  continue
-            feature_patch = gray_img[loc[0]-descriptor_patch_size//2:loc[0]+descriptor_patch_size//2,loc[1]-descriptor_patch_size//2:loc[1]+descriptor_patch_size//2]
-            feature_patch = cv2.GaussianBlur(feature_patch,(3,3),0)
-            feature_patch = cv2.resize(feature_patch,(descriptor_patch_size//5,descriptor_patch_size//5),interpolation=cv2.INTER_CUBIC).reshape(-1)
-            #print(feature_patch.shape)
-            feature_patch = (feature_patch-feature_patch.mean())/feature_patch.std()
-            feature_descriptor.append([loc,feature_patch])
-      return feature_descriptor
+	# img[img_h > 0.001 * img_h.max()] = [255,0,0]
+	# plt.imshow(dst)
+	# plt.show()
+	lm = scipy.ndimage.maximum_filter(img_h, 10)
+	msk = (img_h == lm)
+	ls = scipy.ndimage.minimum_filter(img_h, 10)
+	diff = ((lm-ls) > 20000)
+	msk[diff == 0] = 0
+	img[img_h>0.01*img_h.max()] = [255,0,0]
+	# plt.imshow(img)
+	# plt.savefig("harris.png")
+	# plt.show()
+	coords = []
+	for i in range(0, msk.shape[0]):
+		for j in range(0, msk.shape[1]):
+			if msk[i][j] == True:
+				coords.append((i,j))
+	# plt.imshow(diff)
+	# plt.show()
+	# print(len(coords))
+	return coords, dst
 
-def match_features(img1_features,img2_features):
-      matches = []
-      for loc1, feature1 in img1_features:
-            ssd_array = []
-            for loc2, feature2 in img2_features:
-                  ssd_array.append(np.sum(np.square(feature1-feature2)))
-            best_matches = np.argsort(np.array(ssd_array))
-            if ssd_array[best_matches[0]]/ssd_array[best_matches[1]] < SSD_ratio_threshold:
-                  matches.append([loc1,img2_features[best_matches[0]][0]])
-      return matches
+@jit
+def ANMS(img, img_h, n_best, coords):
+	num = len(coords)
+	inf = sys.maxsize
+	r = inf * np.ones((num,3))
+	ED = 0
+	for i in range(num):
+		for j in range(num):
+			x_i = coords[i][1]    #We take x_cordinate of one corner point 
+			y_i = coords[i][0]   ##We take x_cordinate of one corner point 
+			neighbours_x = coords[j][1]  #x_cordinate of Other points
+			neighbours_y = coords[j][0]
 
-def draw_feature_matches(rgb_img1,rgb_img2,matches):
+			if img_h[y_i,x_i] > img_h[neighbours_y,neighbours_x]:
+				ED = (neighbours_x - x_i)**2 + (neighbours_y - y_i)**2
+
+			if ED < r[i,0]:
+				r[i,0] = ED
+				r[i,1] = x_i
+				r[i,2] = y_i
+
+	arr = r[:,0]
+	feature_sorting = np.argsort(-arr)  #We get the index of biggest that is the reason of -ve sign(Descending order index)
+	feature_cord = r[feature_sorting]
+	Nbest_corners = feature_cord[:n_best,:]   #We also can is find min of(n_best, num_of_feature_cordinates we got)
+	# print(len(Nbest_corners))
+	# for i in range(len(Nbest_corners)):
+	# 	cv2.circle(img, (int(Nbest_corners[i][1]),int(Nbest_corners[i][2])), 3, 255, -1)
+	# plt.imshow(img)
+	# plt.savefig("anms.png")
+	return Nbest_corners
+def display_homography(rgb_img1,rgb_img2,H):
       # Both images must be of the same sizes to concatenate them side by side
-      img_concat = np.concatenate([rgb_img1.copy(),rgb_img2.copy()],axis=1)
-      for match in matches:
-            loc1, loc2 = match
-            loc2[1] += rgb_img1.shape[1]
-            #print(img_concat.shape)
-            #print(loc1, "       ", loc2)
-            #cv2.circle(img_concat,[loc1[1],loc1[0]],2,(0,0,255),-1)
-            #cv2.circle(img_concat,[loc2[1],loc2[0]],2,(0,0,255),-1)
-            cv2.line(img_concat,[loc1[1],loc1[0]],[loc2[1],loc2[0]],(0,0,255),1)
+      #H = np.linalg.inv(H)
+      h_img = cv2.warpPerspective(rgb_img1,H,(rgb_img2.shape[1],rgb_img2.shape[0]))
+      img_concat = np.concatenate([h_img,rgb_img2.copy()],axis=1)
       plt.imshow(img_concat)
       plt.show()
-      
+	  
+def feature_descriptors(img, img_g,  Nbest_corners, patch_size):
+	n_descriptors = []
+	x = Nbest_corners[:,1]
+	y = Nbest_corners[:,2]
 
-def get_inliers(img1_matches,img2_matches,homography):
-      num_inlier_points = 0
-      inlier_indices = []
-      img1_points_transformed = np.vstack((img1_matches[:,0],img1_matches[:,1],np.ones((1,img1_matches.shape[0]))))
-      img1_points_transformed = np.dot(homography,img1_points_transformed)
-      x_transformed = img1_points_transformed[0,:]/(img1_points_transformed[2,:]+np.exp(-7))
-      y_transformed = img1_points_transformed[1,:]/(img1_points_transformed[2,:]+np.exp(-7))
-      img1_points_transformed = np.array([x_transformed,y_transformed]).T
-      #print(img1_points_transformed.shape,"   ",img2_matches.shape)
-      for i in range(img1_matches.shape[0]):
-            if np.linalg.norm(img1_points_transformed[i]-img2_matches[i]) < homography_inlier_threshold:
-                  num_inlier_points += 1
-                  inlier_indices.append(i)
-      return num_inlier_points, inlier_indices
+	for i in range(len(Nbest_corners)):
+		y_i = x[i]         #reverse the co-ordinates again
+		x_i = y[i]
+		gray = copy.deepcopy(img_g)
+		gray = np.pad(img_g, ((patch_size,patch_size), (patch_size,patch_size)), mode='constant', constant_values=0)     #pad the image by 40 on all sides
+		x_start = int(x_i + patch_size/2)
+		y_start = int(y_i + patch_size/2)
+		descriptor = gray[x_start:x_start+patch_size, y_start:y_start+patch_size]            #40x40 descriptor of one point
+		descriptor = cv2.GaussianBlur(descriptor, (7,7), cv2.BORDER_DEFAULT)                  #apply gaussian blur
+		descriptor = descriptor[::5,::5]														#sub sampling to 8x8
+		descriptor_1 = descriptor.reshape((64,1))
+		descriptor_standard = (descriptor_1 - descriptor_1.mean())/descriptor_1.std()
+		n_descriptors.append(descriptor_standard)
+	
+	return n_descriptors
 
+<<<<<<< HEAD
 def RANSAC(matches):
       img1_matches = np.array(matches)[:,0,:]
       img2_matches = np.array(matches)[:,1,:]
@@ -140,160 +140,211 @@ def RANSAC(matches):
       best_homography,_ = cv2.findHomography(img1_points,img2_points)
       #print(best_homography)
       return best_homography, best_inlier_indices
+=======
+def feature_matching(images, gray_images, img_desc, best_corners, match_ratio):
+	f1 = img_desc[0]        #image1 feature vectors
+	f2 = img_desc[1]        #image2 feature vectors
+	corners1 = best_corners[0]       #image1 feature coordinates
+	corners2 = best_corners[1]       #image2 feature coordinates
+	matched_pairs = []
+	for i in range(0, len(f1)):
+		sqr_diff = []
+		for j in range(0, len(f2)):
+			diff = np.sum((f1[i] - f2[j])**2)
+			sqr_diff.append(diff)
+		sqr_diff = np.array(sqr_diff)
+		diff_sort = np.argsort(sqr_diff)
+		sqr_diff_sorted = sqr_diff[diff_sort]
+		ratio = sqr_diff_sorted[0]/(sqr_diff_sorted[1])
+		if ratio < match_ratio:
+			matched_pairs.append((corners1[i,1:3], corners2[diff_sort[0],1:3]))	
+	
+	return matched_pairs
+>>>>>>> 2d39634 (staging phas1 wrapper.py)
 
-def homography_wrapper(rgb_img1,rgb_img2):
-     corner_info1, corner_loc1, corner_img1 = detect_corners(rgb_img1)
-     anms_corner_locs1, anms_corners_img1 = adaptive_non_max_supression(rgb_img1,corner_info1)
-     features1 = corner_feature_descriptors(rgb_img1,anms_corner_locs1)
-     corner_info2, corner_loc2, corner_img2 = detect_corners(rgb_img2)
-     anms_corner_locs2, anms_corners_img2 = adaptive_non_max_supression(rgb_img2,corner_info2)
-     features2 = corner_feature_descriptors(rgb_img2,anms_corner_locs2)
-     matches = match_features(features1,features2)
-     best_homography, best_inlier_indices = RANSAC(matches)
-     ransac_matches = []
-     for index in best_inlier_indices:
-          ransac_matches.append(matches[index])
-     #draw_feature_matches(anms_corners_img1,anms_corners_img2,ransac_matches)
-     #print(len(best_inlier_indices))
-     return best_homography
+def keypoint(points):
+	kp1 = []
+	for i in range(len(points)):
+		kp1.append(cv2.KeyPoint(int(points[i][0]), int(points[i][1]), 3))
+	return kp1
 
-def warp_image(rgb_img1,rgb_img2,best_homography):
-      h,w,c = rgb_img1.shape
-      old_corners = np.array([[0,0,1],[0,h,1],[w,0,1],[w,h,1]]).T.astype(np.float32)
-      new_corners = np.dot(best_homography,old_corners)
-      X = new_corners[0]
-      Y = new_corners[1]
-      Z = new_corners[2]
-      w_min = min(X/Z)
-      w_max = max(X/Z)
-      h_min = min(Y/Z)
-      h_max = max(Y/Z)
-      warping_correction_matrix = np.array([[1,0,-w_min],[0,1,abs(h_min)],[0,0,1]]).astype(np.float32)
-      new_homography = np.dot(warping_correction_matrix,best_homography)
-      new_w = int(w_max-w_min) + rgb_img2.shape[0] + 1
-      new_h = int(h_max+abs(h_min)) + rgb_img2.shape[1] + 1
-      warped_img1 = cv2.warpPerspective(rgb_img1.copy(),new_homography,dsize=(new_w,new_h))
-      plt.imshow(warped_img1)
-      plt.show()
-      return warped_img1, int(abs(w_min)), int(abs(h_min))
+def matches(points):
+	m = []
+	for i in range(len(points)):
+		m.append(cv2.DMatch(int(points[i][0]), int(points[i][1]), 2))
+	return m
 
-def stitch_images(images):
-      base_img = images[0].copy()
-      for img in images[1:]:
-            best_homography = homography_wrapper(base_img,img)
-            new_img, w_min, h_min = warp_image(base_img,img,best_homography)
-            for i in range(img.shape[0]):
-                  for j in range(img.shape[1]):
-                        new_img[w_min+i,h_min+j,:] = img[i,j,:]
-                        #if np.linalg.norm(new_img[w_min+i,h_min+j,:]-np.array([0,0,0])) < 0.001:
-                        #      new_img[w_min+i,h_min+j,:] = img[i,j,:]
-            base_img = new_img
-      base_img = cv2.resize(base_img,(1280,1024),interpolation=cv2.INTER_CUBIC)
-      base_img = cv2.GaussianBlur(base_img,(3,3),0)
-      plt.imshow(base_img)
-      plt.show()
+def draw_matches(images, matched_pairs):
+	img1 = copy.deepcopy(images[0])
+	img2 = copy.deepcopy(images[1])
+	key_points_1 = [x[0] for x in matched_pairs]
+	keypoints1 = keypoint(key_points_1)
+	key_points_2 = [x[1] for x in matched_pairs]
+	keypoints2 = keypoint(key_points_2)
+	matched_pairs_idx = [(i,i) for i,j in enumerate(matched_pairs)]
+	matches1to2 = matches(matched_pairs_idx)
+	out = cv2.drawMatches(img1, keypoints1, img2, keypoints2, matches1to2, None, flags =2)
+	plt.imshow(out)
+	plt.show()
 
-# def stitch_images(images):
-#       output_img = np.zeros((1080,630,3))
-#       warping_correction_matrix = np.array([[1,0,100],[0,1,150],[0,0,1]]).astype(np.float32)
-#       warped_imgs = []
-#       base_img = images[0]
-#       base_img = cv2.resize(base_img,(800,800),interpolation=cv2.INTER_CUBIC)
-#       warped_imgs.append(cv2.warpPerspective(base_img,warping_correction_matrix,(1080,630)))
-#       for img in images[1:]:
-#           img = cv2.resize(img,(800,800),interpolation=cv2.INTER_CUBIC)
-#           best_homography = homography_wrapper(base_img,img)
-#           H = np.dot(warping_correction_matrix,np.linalg.inv(best_homography))
-#           warped_imgs.append(cv2.warpPerspective(img,H,(1080,630)))
-#       for i in range(output_img.shape[0]):
-#             for j in range(output_img.shape[1]):
-#                   for img in warped_imgs:
-#                         if not np.array_equal(img[i,j,:],np.array([0,0,0])):
-#                               output_img[i,j,:] = img[i,j,:]
-#       cv2.GaussianBlur(output_img,(3,3),0)
-#       plt.imshow(output_img)
-#       plt.show()
-                              
-       
-      
-                  
+
+
+def homography(point1, point2):
+	h_matrix  = cv2.getPerspectiveTransform(np.float32(point1), np.float32(point2))
+	return h_matrix
+
+def dot_product(h_mat, keypoint):
+	keypoint = np.expand_dims(keypoint, 1)
+	keypoint = np.vstack([keypoint, 1])
+	product = np.dot(h_mat, keypoint)
+	if product[2]!=0:
+		product = product/product[2]
+	else:
+		product = product/0.000001
+	# print(product)
+	return product[0:2,:]
+
+def ransac(matched_pairs, threshold):
+
+	inliers = []   #to store ssd's and corresponding homography matrices
+	COUNT = []
+	for i in range(1000):    #Nmax iterations
+		
+		keypoints_1 = [x[0] for x in matched_pairs]
+		keypoints_2 = [x[1] for x in matched_pairs]
+		length = len(keypoints_1)
+		
+		randomlist = random.sample(range(0, length), 4)
+		points_1 = [keypoints_1[idx] for idx in randomlist]
+		points_2 = [keypoints_2[idx] for idx in randomlist]
+
+		h_matrix = homography(points_1, points_2)
+		
+		points = []
+		count_inliers = 0
+		for i in range(length):
+			a = (np.array(keypoints_2[i]))
+			# ssd = np.sum((np.expand_dims(np.array(keypoints_2[i]), 1) - dot_product(h_matrix, keypoints_1[i]))**2)
+			ssd = np.linalg.norm(np.expand_dims(np.array(keypoints_2[i]), 1) - dot_product(h_matrix, keypoints_1[i]))
+			# print("ssd",ssd)
+			if ssd < threshold:
+				count_inliers += 1
+				points.append((keypoints_1[i], keypoints_2[i]))
+		COUNT.append(-count_inliers)
+		inliers.append((h_matrix, points))
+	max_count_idx = np.argsort(COUNT)
+	max_count_idx = max_count_idx[0]
+	# print(max_count_idx)
+	# final_h_matrix = inliers[max_count_idx][0]
+	final_matched_pairs = inliers[max_count_idx][1]
+	# print("Matched pairs", len(final_matched_pairs))
+
+	pts_1 = [x[0] for x in final_matched_pairs]
+	pts_2 = [x[1] for x in final_matched_pairs]
+	h_final_matrix, status = cv2.findHomography(np.float32(pts_1),np.float32(pts_2))
+	print(h_final_matrix)
+	return h_final_matrix, final_matched_pairs
+
+def warpTwoImages(images, H):
+
+	img1 = copy.deepcopy(images[1])
+	img2 = copy.deepcopy(images[0])
+	h1,w1 = img1.shape[:2]
+	h2,w2 = img2.shape[:2]
+	pts1 = np.float32([[0,0],[0,h1],[w1,h1],[w1,0]]).reshape(-1,1,2)
+	pts2 = np.float32([[0,0],[0,h2],[w2,h2],[w2,0]]).reshape(-1,1,2)
+	pts2_ = cv2.perspectiveTransform(pts2, H)
+	pts = np.concatenate((pts1, pts2_), axis=0)
+	[xmin, ymin] = np.int32(pts.min(axis=0).ravel())
+	[xmax, ymax] = np.int32(pts.max(axis=0).ravel())
+	t = [-xmin,-ymin]
+	Ht = np.array([[1,0,t[0]],[0,1,t[1]],[0,0,1]]) # translate
+	result = cv2.warpPerspective(img2, Ht.dot(H), (xmax-xmin, ymax-ymin), flags = cv2.INTER_LINEAR)
+	# a,b = result.shape[:2]
+	# img11 = np.pad(img1, ((t[1], t[0], 0), (0,0,0)), mode='constant', constant_values=0)
+	# plt.imshow(img11)
+	# plt.show()
+	result[t[1]:h1+t[1],t[0]:w1+t[0]] = img1
+
+	return result
+
+def stitching(data_path):
+	folder_img = os.path.join("Phase1/Data/Train/Set1")
+	# folder_img = os.path.join("Data/Train/", data_path)
+	name = os.path.split(folder_img)
+	name = name[1]
+	if os.path.exists(folder_img): 
+		image_list = os.listdir(folder_img)
+		image_list.sort()
+	else:
+		raise Exception ("Directory Image1 doesn't exist")
+	images_path = []
+	for i in range(len(image_list)):
+		image_path = os.path.join(folder_img,image_list[i])
+		images_path.append(image_path)
+
+	# print(images_path)
+	images1 = []
+	gray_images1 = []
+	# for i in range(1,len(image_list)+1):   #pass range as no. of images to be stitched
+	for i, img in enumerate(images_path):
+		# img = cv2.imread('../Data/Train/Set1/' + str(i) + '.jpg')
+		img = cv2.imread(img)
+		images1.append(img)
+		img_g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+		gray_images1.append(img_g)
+
+	img_count = len(images1)
+	corners = 1000
+	match_ratio = 0.4
+	threshold = 30
+	c1 = 0
+	c2 = 0
+	c3 = 0
+	for j in range(img_count-1):
+		# print("Image number", j+1)
+		img_desc = []
+		best_corners = []
+		c2 = j+1
+		images = [images1[c1], images1[c2]]
+		print("Matching image", c1+1, "and", c2+1)
+		gray_images = [gray_images1[c1], gray_images1[c2]]
+		for i in range(2):
+			img = images[i]
+			img_g = gray_images[i]
+			coords, img_h = harriscorners(copy.deepcopy(img), img_g)
+			Nbest_corners = ANMS(copy.deepcopy(img), img_h, corners, coords)
+			best_corners.append(Nbest_corners)
+			f_vectors = feature_descriptors(copy.deepcopy(img), img_g, Nbest_corners, 40)
+			img_desc.append(f_vectors)
+		
+		matched_pairs = feature_matching(images, gray_images, img_desc, best_corners, match_ratio)
+		print("Matched pairs", len(matched_pairs))
+		# print(len(matched_pairs))
+		# draw_matches(images, matched_pairs)
+		if len(matched_pairs) > 20:
+			c1 = c2
+			final_h_mat, final_matched = ransac(matched_pairs, threshold)
+			draw_matches(images, final_matched)
+			warped = warpTwoImages(images, final_h_mat)
+			display_homography(images[0],images[1],final_h_mat)
+			plt.imshow(warped)
+			# cv2.imwrite("Panorama", name + '.png')
+			plt.savefig('Phase1/Data/results/' + name + '/' + name + '.png')
+			# plt.show()
+		else:
+			c3 += 1
+			continue
+
+		images1[c1] = warped
+		gray_images1[c1] = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
+
 def main():
-	# Add any Command Line arguments here
-    # Parser = argparse.ArgumentParser()
-    # Parser.add_argument('--NumFeatures', default=100, help='Number of best features to extract from each image, Default:100')
-    
-    # Args = Parser.parse_args()
-    # NumFeatures = Args.NumFeatures
+	Parser = argparse.ArgumentParser()
+	Parser.add_argument('--DataPath', default='Set1', help='Contains images to stitch')
+	Args = Parser.parse_args()
+	data_path = Args.DataPath
+	stitching(data_path)
 
-	"""
-	Read a set of images for Panorama stitching
-	"""
-
-	"""
-	Corner Detection
-	Save Corner detection output as corners.png
-	"""
-
-	"""
-	Perform ANMS: Adaptive Non-Maximal Suppression
-	Save ANMS output as anms.png
-	"""
-
-	"""
-	Feature Descriptors
-	Save Feature Descriptor output as FD.png
-	"""
-
-	"""
-	Feature Matching
-	Save Feature Matching output as matching.png
-	"""
-
-
-	"""
-	Refine: RANSAC, Estimate Homography
-	"""
-
-
-	"""
-	Image Warping + Blending
-	Save Panorama output as mypano.png
-	"""
-
-    
-if __name__ == '__main__':
-    img1 = cv2.imread("Phase1/Data/Train/Set2/1.jpg")
-    img2 = cv2.imread("Phase1/Data/Train/Set2/2.jpg")
-    img3 = cv2.imread("Phase1/Data/Train/Set2/3.jpg")
-    img4 = cv2.imread("Phase1/Data/Train/Set3/4.jpg")
-    img5 = cv2.imread("Phase1/Data/Train/Set3/5.jpg")
-    img6 = cv2.imread("Phase1/Data/Train/Set3/6.jpg")
-    img7 = cv2.imread("Phase1/Data/Train/Set3/7.jpg")
-    img8 = cv2.imread("Phase1/Data/Train/Set3/8.jpg")
-    imgs = [img1,img2]
-    #print(img1.shape)
-    info,loc,corners_img = detect_corners(img1)
-    locs,anms_corners_img1 = adaptive_non_max_supression(img1,info)
-    features1 = corner_feature_descriptors(img1,locs)
-#     img2 = cv2.imread("Phase1/Data/Train/Set1/2.jpg")
-    img2 = cv2.resize(img2,[img1.shape[1],img1.shape[0]],cv2.INTER_CUBIC)
-    #print(img2.shape)
-    info,loc,corners_img = detect_corners(img2)
-    locs,anms_corners_img2 = adaptive_non_max_supression(img2,info)
-    features2 = corner_feature_descriptors(img2,locs)
-    matches = match_features(features1,features2)
-    #print(len(features1))
-    #print(len(features2))
-    #print(len(matches))
-    #draw_feature_matches(anms_corners_img1,anms_corners_img2,matches)
-    best_homography, best_inlier_indices = RANSAC(matches)
-    #print(best_homography)
-    ransac_matches = []
-    for index in best_inlier_indices:
-          ransac_matches.append(matches[index])
-#     print(len(ransac_matches))
-#     draw_feature_matches(anms_corners_img1,anms_corners_img2,ransac_matches)
-    warp_image(img1,img2,best_homography)
-    stitch_images(imgs)
-    
- 
+if __name__ == "__main__":
+	main()
