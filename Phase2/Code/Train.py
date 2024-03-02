@@ -7,17 +7,9 @@ Project 1: MyAutoPano: Phase 2 Starter Code
 
 
 Author(s):
-Mayank Deshpande (msdeshp4@umd.edu)
-M.Eng. in Robotics,
-University of Maryland, College Park
-
-Vikram Setty (msdeshp4@umd.edu)
-M.Eng. in Robotics,
-University of Maryland, College Park
-
-Vinay Lanka (msdeshp4@umd.edu)
-M.Eng. in Robotics,
-University of Maryland, College Park
+Lening Li (lli4@wpi.edu)
+Teaching Assistant in Robotics Engineering,
+Worcester Polytechnic Institute
 """
 
 
@@ -68,26 +60,6 @@ else:
     device = torch.device("cpu")
 print(f"Running on device: {device}")
 
-class YourDataset(Dataset):
-
-    def __init__(self, x_train, y_train, transform=None):
-        self.x_train = x_train
-        self.y_train = y_train
-        self.transform = transform
-    
-    def __len__(self):
-        return len(self.x_train)
-
-    def __getitem__(self, idx):
-
-        x = self.x_train[idx]
-        y = self.y_train[idx]
-
-        if self.transform:
-            x = self.transform(x)
-
-        return x, y
-
 def GenerateBatch(BasePath, MiniBatchSize, Val): #DirNamesTrain, TrainCoordinates, ImageSize,
     """
     Inputs:
@@ -104,46 +76,33 @@ def GenerateBatch(BasePath, MiniBatchSize, Val): #DirNamesTrain, TrainCoordinate
     """
     I1Batch = []
     CoordinatesBatch = []
-    # ImageNum = 0
-    # while ImageNum < MiniBatchSize:
-        # ImageNum += 1
+    ImageNum = 0
+    while ImageNum < MiniBatchSize:
+        ImageNum += 1
 
         # Generate random image
-    print("Generating Data!!")
-    orignal_img_fpath = os.path.join(BasePath, f"train_dataset/patch_a")
-    warped_img_fpath = os.path.join(BasePath, f"train_dataset/patches_warped")
-    if os.path.exists(orignal_img_fpath): 
-        image_list = os.listdir(orignal_img_fpath)
-    else:
-        raise Exception ("Directory Image1 doesn't exist")
-    
-    # RandIdx = random.randint(1, len(image_list)-1)
-    orig_path = []
-    warped_path = []
-    for i in range(len(image_list)):
-        orig_img_path = os.path.join(orignal_img_fpath,image_list[i])
-        warped_img_path = os.path.join(warped_img_fpath,image_list[i])
-        orig_path.append(orig_img_path)
-        warped_path.append(warped_img_path)
+        orignal_img_fpath = os.path.join(BasePath, f"train_dataset/patch_a")
+        warped_img_fpath = os.path.join(BasePath, f"train_dataset/patches_warped")
+        if os.path.exists(orignal_img_fpath): 
+            image_list = os.listdir(orignal_img_fpath)
+        else:
+            raise Exception ("Directory Image1 doesn't exist")
+        
+        RandIdx = random.randint(1, len(image_list)-1)
+        orig_img_path = os.path.join(orignal_img_fpath,image_list[RandIdx])
+        warped_img_path = os.path.join(warped_img_fpath,image_list[RandIdx])
+        img1 = cv2.imread(orig_img_path, cv2.IMREAD_GRAYSCALE)
+        img2 = cv2.imread(warped_img_path, cv2.IMREAD_GRAYSCALE)
 
-    img1 = [cv2.imread(i, cv2.IMREAD_GRAYSCALE) for i in orig_path]
-    img2 = [cv2.imread(i, cv2.IMREAD_GRAYSCALE) for i in warped_path]
-    origset = np.array(img1)
-    warpedset = np.array(img2)
-
-    for i in range(0, len(origset)):
-        img1 = origset[i]
         img1 = np.expand_dims(img1, 2)
-        img2 = warpedset[i]
         img2 = np.expand_dims(img2, 2)
-        IMG = np.concatenate((img1, img2), axis = 2)
-        I1Batch.append(torch.from_numpy(IMG))
-        label = np.genfromtxt('Phase2/Data/train_dataset/H_4points/' + str(i+1) + '.txt', delimiter=',')
-        CoordinatesBatch.append(torch.from_numpy(label))
+        I = np.concatenate((img1, img2), axis = 2)
+        label = np.genfromtxt('Phase2/Data/train_dataset/H_4points/' + str(RandIdx) + '.txt', delimiter=',')
+
         # Append All Images and Mask
         # I = np.transpose(I, (2, 0, 1))
-        # I1Batch.append(torch.from_numpy(IMG))
-        # CoordinatesBatch.append(torch.from_numpy(label))
+        I1Batch.append(torch.from_numpy(I))
+        CoordinatesBatch.append(torch.from_numpy(label))
 
     # Generating validation batch
     if Val:
@@ -154,8 +113,7 @@ def GenerateBatch(BasePath, MiniBatchSize, Val): #DirNamesTrain, TrainCoordinate
         else:
             raise Exception ("Directory Image1 doesn't exist")
         
-        images1_path = []
-        images2_path = []
+        images1_path, images2_path = [], []
         for i in range(len(imgs_list)):
             I1 = os.path.join(val_patch_path,imgs_list[i])
             I2 = os.path.join(val_warped_path,imgs_list[i])
@@ -187,18 +145,12 @@ def GenerateBatch(BasePath, MiniBatchSize, Val): #DirNamesTrain, TrainCoordinate
         print("returning val")
         val_batch = torch.stack(val_batch)
         val_batch = val_batch.to(torch.float32)
-        val_dataset = [val_batch, torch.stack(val_labels)]
-        val_dataset = YourDataset(val_batch, torch.stack(val_labels))
-        val_loader = DataLoader(val_dataset, batch_size=1)
-        return val_loader #val_batch, torch.stack(val_labels)
+        return val_batch, torch.stack(val_labels)
     else:
         print("returning train")
         I1Batch = torch.stack(I1Batch)
         I1Batch = I1Batch.to(torch.float32)
-        # train_dataset = [I1Batch, torch.stack(CoordinatesBatch)]
-        train_dataset = YourDataset(I1Batch, torch.stack(CoordinatesBatch))
-        train_loader = DataLoader(train_dataset, batch_size=MiniBatchSize, shuffle = True)
-        return train_loader #I1Batch, torch.stack(CoordinatesBatch)
+        return I1Batch, torch.stack(CoordinatesBatch)
 
 
 def PrettyPrint(NumEpochs, DivTrain, MiniBatchSize, NumTrainSamples, LatestFile):
@@ -263,33 +215,34 @@ def TrainOperation(
     else:
         StartEpoch = 0
         print("New model initialized....")
-    train_loader = GenerateBatch(
-            BasePath, MiniBatchSize, Val=False
-        )
-    train_loss = []
-    validation_loss = []
+
     for Epochs in tqdm(range(StartEpoch, NumEpochs)):
-        # NumIterationsPerEpoch = int(NumTrainSamples / MiniBatchSize / DivTrain)
-        # for PerEpochCounter in tqdm(range(NumIterationsPerEpoch)):
-        
-        # Predict output with forward pass
-        model.train()
-        train_losses = []
-        # print(I1Batch.shape)
-        PerEpochCounter = 0
-        for Batch in train_loader:
-            PerEpochCounter += 1
-            # print(Batch.shape)
-            Image, Label = Batch
-            PredicatedCoordinatesBatch = model(Image)
-            LossThisBatch = LossFn(PredicatedCoordinatesBatch, Label)
-            train_losses.append(LossThisBatch)
+        NumIterationsPerEpoch = int(NumTrainSamples / MiniBatchSize / DivTrain)
+        for PerEpochCounter in tqdm(range(NumIterationsPerEpoch)):
+            I1Batch, CoordinatesBatch = GenerateBatch(
+                BasePath, MiniBatchSize, Val=False
+            )
+            # Predict output with forward pass
+            model.train()
+            # print(I1Batch.shape)
+            PredicatedCoordinatesBatch = model(I1Batch)
+            LossThisBatch = LossFn(PredicatedCoordinatesBatch, CoordinatesBatch)
+
             Optimizer.zero_grad()
             LossThisBatch.backward()
             Optimizer.step()
 
             # Save checkpoint every some SaveCheckPoint's iterations
             if PerEpochCounter % SaveCheckPoint == 0:
+
+                # Write training losses to tensorboard
+                Writer.add_scalar(
+                    "LossEveryIter",
+                    LossThisBatch,
+                    Epochs * NumIterationsPerEpoch + PerEpochCounter,
+                )
+                # If you don't flush the tensorboard doesn't update until a lot of iterations!
+                Writer.flush()
 
                 # Save the Model learnt in this epoch
                 SaveName = (
@@ -313,15 +266,10 @@ def TrainOperation(
 
         model.eval()
         with torch.no_grad():
-            val_loader = GenerateBatch(
+            val_batch, val_labels = GenerateBatch(
                 BasePath, MiniBatchSize=1, Val=True
             )
-            result = [model.validation(val_batch, val_labels) for val_batch, val_labels in val_loader]
-            result = model.validation_epoch_end(result)
-            result['train_loss'] = torch.stack(train_losses).mean().item()
-            validation_loss.append(result['val_loss'])
-            train_loss.append(result['train_loss'])
-            # result = model.validation(val_batch, val_labels)
+            result = model.validation(val_batch, val_labels)
 
         # Write validation losses to tensorboard
         Writer.add_scalar(
@@ -344,7 +292,6 @@ def TrainOperation(
             SaveName,
         )
         print("\n" + SaveName + " Model Saved...")
-    return train_loss, validation_loss
 
 def plot_train_losses(train):
     plt.plot(train, '-x', label =  'TrainSet')
@@ -394,7 +341,7 @@ def main():
     Parser.add_argument(
         "--MiniBatchSize",
         type=int,
-        default=64,
+        default=1,
         help="Size of the MiniBatch to use, Default:1",
     )
     Parser.add_argument(
@@ -405,7 +352,7 @@ def main():
     )
     Parser.add_argument(
         "--LogsPath",
-        default="Phase2/Logs/",
+        default="Logs/",
         help="Path to save Logs for Tensorboard, Default=Logs/",
     )
 
@@ -438,7 +385,7 @@ def main():
     # Pretty print stats
     PrettyPrint(NumEpochs, DivTrain, MiniBatchSize, NumTrainSamples, LatestFile)
 
-    train_loss, val_loss = TrainOperation(
+    TrainOperation(
         DirNamesTrain,
         TrainCoordinates,
         NumTrainSamples,
@@ -452,7 +399,7 @@ def main():
         LogsPath,
         ModelType,
     )
-    plot_train_losses(train_loss)
+
 
 if __name__ == "__main__":
     main()
