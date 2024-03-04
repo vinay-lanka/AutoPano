@@ -42,6 +42,7 @@ import math as m
 from sklearn.metrics import confusion_matrix
 from tqdm import tqdm
 import torch
+from copy import deepcopy
 
 
 
@@ -51,17 +52,22 @@ sys.dont_write_bytecode = True
 
 def generate_test_data():
 
-    i = 4
-    img = cv2.imread('Phase2/Data/Train/' + str(i) + '.jpg',0)
-    I = cv2.resize(img, (320, 240))
-    x,y = img.shape
+    i = 19
+    img = cv2.imread('Phase2/Data/Train/' + str(i) + '.jpg')
+    I = deepcopy(img)
+    I = cv2.cvtColor(I, cv2.COLOR_BGR2GRAY)
+    I = cv2.resize(I, (320, 240))
+    x,y = I.shape
     width = 128
     height = 128
     perturbation = 16
     patch_x = random.randint(perturbation, x-width-perturbation)
     patch_y = random.randint(perturbation, y-height-perturbation)
     patch_A = I[patch_x : patch_x + width, patch_y : patch_y + height]
-    patch_a_corners = np.array([[patch_y, patch_x], [patch_y, patch_x + width], [patch_y + height, patch_x + width], [patch_y + height, patch_x]], dtype=np.float32)
+    patch_a_corners = np.array([[patch_y, patch_x], 
+                                [patch_y, patch_x + width], 
+                                [patch_y + height, patch_x + width], 
+                                [patch_y + height, patch_x]], dtype=np.float32)
     # plt.imshow(patch_A)
     # plt.show()
     
@@ -72,6 +78,10 @@ def generate_test_data():
     pert_mat = np.hstack([pert_x, pert_y])
 
     warped_corners = patch_a_corners + pert_mat
+
+    H4Pt = np.float32(warped_corners) - patch_a_corners 
+    H4Pt = H4Pt.flatten(order = 'F')  
+    print(H4Pt)
 
     H_AB = cv2.getPerspectiveTransform(np.float32(patch_a_corners), np.float32(warped_corners))
     H_BA = np.linalg.inv(H_AB)
@@ -84,38 +94,45 @@ def generate_test_data():
     warped_patch = warp_img[patch_x + i[1] : patch_x + width + i[1], patch_y + i[0] : patch_y + height + i[0]]
     # plt.imshow(warp_img)
     # plt.show()
-    plt.imshow(warped_patch)
-    plt.show()
-    return patch_A, warped_patch, patch_a_corners, warped_corners, warp_img, i
+    # plt.imshow(warped_patch)
+    # plt.show()
+    return patch_A, warped_patch, patch_a_corners, warped_corners, img, i, H4Pt
 
 def input(img1, img2):
     img1 = np.expand_dims(img1, 2)
     img2 = np.expand_dims(img2, 2)
-    transformImg=tf.Compose([tf.ToTensor()])
-    I = np.concatenate((img1, img2), axis = 2)
-    I = np.transpose(I, (0, 2, 1))
-    I = transformImg(I)
-    I = I.unsqueeze(0)
+    # transformImg = tf.Compose([tf.ToTensor()])
+    I = torch.stack([torch.from_numpy(np.concatenate((img1, img2), axis = 2))]).to(dtype=torch.float32)
+    # I = np.transpose(I, (0, 2, 1))
+    # I = transformImg(I)
+    # I = I.unsqueeze(0)
     return I
 
 def Test_operation(Img, ModelPath):
-    model = HomographyModel()
+    model = SupHomographyModel()
     CheckPoint = torch.load(ModelPath)
     model.load_state_dict(CheckPoint['model_state_dict'])
     model.eval()
-    H4PT = model(Img)
-    H4PT = H4PT.squeeze(0)
+    H4PT = model.model(Img)
+    # H4PT = H4PT.squeeze(0)
     return H4PT
 
 def predicted_patch(H4PT_pred, patch_a_corners):
-    pred_warped_corners = patch_a_corners - H4PT_pred
+    # pred_warped_corners = patch_a_corners - H4PT_pred
+    pred_warped_corners = patch_a_corners + H4PT_pred
     return pred_warped_corners
 
 def corners(img, warped_corners, pred_warped_corners, t):
+    warped_corners = warped_corners.astype('int32')
+    plt.imshow(img)
+    plt.show()
+    # pred_warped_corners = np.roll(pred_warped_corners, 2)
     cv2.polylines(img, [warped_corners + t], isClosed = True, color = (255,0,0), thickness = 2)
     cv2.polylines(img, [pred_warped_corners + t], isClosed = True, color = (0,255,0), thickness = 2)
-    cv2.imshow('img', img)
-    cv2.waitKey()
+    plt.imshow(img)
+    plt.show()
+    # cv2.imshow('img', img)
+    # cv2.waitKey()
 
 def main():
 
@@ -124,18 +141,20 @@ def main():
     Parser.add_argument(
         "--ModelPath",
         dest="ModelPath",
-        default="Phase2/Checkpoints/2a4900model.ckpt",
+        default="./Phase2/Checkpoints/9model.ckpt",
         help="Path to load latest model from, Default:ModelPath",
     )
     Args = Parser.parse_args()
     ModelPath = Args.ModelPath
 
-    patch_A, warped_patch, patch_a_corners, warped_corners, warped_img, t = generate_test_data()
+    patch_A, warped_patch, patch_a_corners, warped_corners, warped_img, t, H4Pt = generate_test_data()
     input_img = input(patch_A, warped_patch)
     H4PT_pred = Test_operation(input_img, ModelPath)
-
+    print(H4PT_pred)
     H4PT_pred = H4PT_pred.detach().numpy()
+    # H4PT_pred = H4Pt
     H4PT_pred = np.reshape(H4PT_pred, (4,2), order = 'F')
+    # H4PT_pred = np.reshape(H4PT_pred, (4,2))
     pred_warped_corners = predicted_patch(H4PT_pred, patch_a_corners)
     pred_warped_corners = pred_warped_corners.astype(int)
     corners(warped_img, warped_corners, pred_warped_corners, t)

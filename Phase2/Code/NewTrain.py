@@ -1,23 +1,3 @@
-#!/usr/bin/env python3
-
-"""
-RBE/CS Fall 2022: Classical and Deep Learning Approaches for
-Geometric Computer Vision
-Project 1: MyAutoPano: Phase 2 Starter Code
-
-
-Author(s):
-Lening Li (lli4@wpi.edu)
-Teaching Assistant in Robotics Engineering,
-Worcester Polytechnic Institute
-"""
-
-
-# Dependencies:
-# opencv, do (pip install opencv-python)
-# skimage, do (apt install python-skimage)
-# termcolor, do (pip install termcolor)
-
 import torch
 import torchvision
 from torch.utils.tensorboard import SummaryWriter
@@ -60,7 +40,7 @@ else:
     device = torch.device("cpu")
 print(f"Running on device: {device}")
 
-def GenerateBatch(BasePath, MiniBatchSize, Val): #DirNamesTrain, TrainCoordinates, ImageSize,
+def GenerateBatch(BasePath, MiniBatchSize, State):
     """
     Inputs:
     BasePath - Path to COCO folder without "/" at the end
@@ -71,103 +51,48 @@ def GenerateBatch(BasePath, MiniBatchSize, Val): #DirNamesTrain, TrainCoordinate
     ImageSize - Size of the Image
     MiniBatchSize is the size of the MiniBatch
     Outputs:
-    I1Batch - Batch of images
-    CoordinatesBatch - Batch of coordinates
+    ImageBatch - Batch of images
+    GroundTruthBatch - Batch of coordinates
     """
-    I1Batch = []
-    CoordinatesBatch = []
+    ImageBatch = []
+    GroundTruthBatch = []
     ImageNum = 0
+    patches_a_path = os.path.join(BasePath, f"Synthetic{State}/patch_A")
+    patches_b_path = os.path.join(BasePath, f"Synthetic{State}/patch_B")
+    GTs_path = os.path.join(BasePath, f"Synthetic{State}/H4Pt/")
+    if os.path.exists(patches_a_path): 
+        image_list = os.listdir(patches_a_path)
+    else:
+        raise Exception ("Patch A Directory doesn't exist")
+    
     while ImageNum < MiniBatchSize:
         ImageNum += 1
-
-        # Generate random image
-        orignal_img_fpath = os.path.join(BasePath, f"train_dataset/patch_a")
-        warped_img_fpath = os.path.join(BasePath, f"train_dataset/patches_warped")
-        if os.path.exists(orignal_img_fpath): 
-            image_list = os.listdir(orignal_img_fpath)
-        else:
-            raise Exception ("Directory Image1 doesn't exist")
-        
         RandIdx = random.randint(1, len(image_list)-1)
-        orig_img_path = os.path.join(orignal_img_fpath,image_list[RandIdx])
-        warped_img_path = os.path.join(warped_img_fpath,image_list[RandIdx])
-        img1 = cv2.imread(orig_img_path, cv2.IMREAD_GRAYSCALE)
-        img2 = cv2.imread(warped_img_path, cv2.IMREAD_GRAYSCALE)
+        # print(len(image_list))
+        if State == "Train":
+            patch_a_path = os.path.join(patches_a_path,image_list[RandIdx])
+            patch_b_path = os.path.join(patches_b_path,image_list[RandIdx])
+            GT_path = GTs_path + image_list[RandIdx][:-4] + f".txt"
+        elif State == "Val":
+            # print(ImageNum)
+            patch_a_path = os.path.join(patches_a_path,image_list[ImageNum-1])
+            patch_b_path = os.path.join(patches_b_path,image_list[ImageNum-1])
+            GT_path = GTs_path + image_list[ImageNum-1][:-4] + f".txt"
 
-        img1 = np.expand_dims(img1, 2)
-        img2 = np.expand_dims(img2, 2)
-        I = np.concatenate((img1, img2), axis = 2)
-        label = np.genfromtxt('Phase2/Data/train_dataset/H_4points/' + image_list[RandIdx][:-4] + '.txt', delimiter=',')
-        # Append All Images and Mask
-        # I = np.transpose(I, (2, 0, 1))
-        I1Batch.append(torch.from_numpy(I))
-        # CoordinatesBatch.append(torch.from_numpy(label))
-        CoordinatesBatch.append(torch.from_numpy(label).to(device))
+        patch_A = cv2.imread(patch_a_path, cv2.IMREAD_GRAYSCALE)
+        patch_B = cv2.imread(patch_b_path, cv2.IMREAD_GRAYSCALE)
 
-    # Generating validation batch
-    if Val:
-        val_patch_path = os.path.join(BasePath, f"val_dataset/patch_a")
-        val_warped_path = os.path.join(BasePath, f"val_dataset/patches_warped")
-        if os.path.exists(val_patch_path): 
-            imgs_list = os.listdir(val_patch_path)
-        else:
-            raise Exception ("Directory Image1 doesn't exist")
-        
-        images1_path, images2_path = [], []
-        for i in range(len(imgs_list)):
-        # for i in range(2):
-            # print(imgs_list[i])
-            I1 = os.path.join(val_patch_path,imgs_list[i])
-            I2 = os.path.join(val_warped_path,imgs_list[i])
-            images1_path.append(I1)
-            images2_path.append(I2)
+        patch_A = np.expand_dims(patch_A, 2)
+        patch_B = np.expand_dims(patch_B, 2)
+        I = np.concatenate((patch_A, patch_B), axis = 2)
+        GT = np.genfromtxt(GT_path, delimiter=',')
 
-        image1 = [cv2.imread(i,0) for i in images1_path]
-        image2 = [cv2.imread(i,0) for i in images2_path]
-        trainsetA = np.array(image1)
-        trainsetB = np.array(image2)
-        val_batch = []
-        val_labels = []
-        count = 0
-        for i in range(0,len(trainsetA)):
+        ImageBatch.append(torch.from_numpy(I))
+        GroundTruthBatch.append(torch.from_numpy(GT).to(device))
 
-            count+=1
-            img1 = trainsetA[i]
-            img1 = np.expand_dims(img1, 2)
-            img2 = trainsetB[i]
-            img2 = np.expand_dims(img2, 2)
-            img = np.concatenate((img1, img2), axis = 2)
-            # print(img.shape)
-            # img = np.transpose(img, (2, 0, 1))
-            val_batch.append(torch.from_numpy(img))
-            # print(imgs_list[i+1])
-            val_label = np.genfromtxt('Phase2/Data/val_dataset/H_4points/' + imgs_list[i][:-4] + '.txt', delimiter=',')
-            val_labels.append(torch.from_numpy(val_label).to(device))
-            
-    
-        # print("returning val")
-        val_batch = torch.stack(val_batch)
-        # val_batch = val_batch.to(torch.float32)
-        val_batch = val_batch.to(device,dtype=torch.float32)
-        return val_batch, torch.stack(val_labels)
-    else:
-        # print("returning train")
-        I1Batch = torch.stack(I1Batch)
-        # I1Batch = I1Batch.to(torch.float32)
-        I1Batch = I1Batch.to(device,dtype=torch.float32)
-        return I1Batch, torch.stack(CoordinatesBatch)
-
-
-def PrettyPrint(NumEpochs, DivTrain, MiniBatchSize, NumTrainSamples, LatestFile):
-    """
-    Prints all stats with all arguments
-    """
-    print("Number of Epochs Training will run for " + str(NumEpochs))
-    print("Factor of reduction in training data is " + str(DivTrain))
-    print("Mini Batch Size " + str(MiniBatchSize))
-    print("Number of Training Images " + str(NumTrainSamples))
-    if LatestFile is not None:
-        print("Loading latest checkpoint with the name " + LatestFile)
+    ImageBatch = torch.stack(ImageBatch)
+    ImageBatch = ImageBatch.to(device,dtype=torch.float32)
+    return ImageBatch, torch.stack(GroundTruthBatch)
 
 
 def TrainOperation(
@@ -203,9 +128,13 @@ def TrainOperation(
     Saves Trained network in CheckPointPath and Logs to LogsPath
     """
     # Predict output with forward pass
-    model = HomographyModel()
+    if ModelType == 'Sup':
+        # Predict output with forward pass
+        model = SupHomographyModel()
+    else:
+        model = UnSupHomographyModel()
 
-    Optimizer = Adam(model.parameters(), lr=0.005)
+    Optimizer = Adam(model.parameters(), lr=0.0001)
 
     # Tensorboard
     # Create a summary to monitor loss tensor
@@ -227,18 +156,20 @@ def TrainOperation(
     for Epochs in tqdm(range(StartEpoch, NumEpochs)):
         NumIterationsPerEpoch = int(NumTrainSamples / MiniBatchSize / DivTrain)
         for PerEpochCounter in tqdm(range(NumIterationsPerEpoch)):
-            I1Batch, CoordinatesBatch = GenerateBatch(
-                BasePath, MiniBatchSize, Val=False
-            )
+
+            if ModelType == 'Sup':
+                I1Batch, CoordinatesBatch = GenerateBatch(
+                    BasePath, MiniBatchSize, "Train"
+                )
 
             I1Batch.to(device)
             CoordinatesBatch.to(device)
             # Predict output with forward pass
             model.train()
 
-            # print(I1Batch.shape)
             PredicatedCoordinatesBatch = model(I1Batch)
-            LossThisBatch = LossFn(PredicatedCoordinatesBatch, CoordinatesBatch)
+            LossThisBatch = SupLossFn(PredicatedCoordinatesBatch, CoordinatesBatch)
+            # print(LossThisBatch)
 
             Optimizer.zero_grad()
             LossThisBatch.backward()
@@ -250,7 +181,6 @@ def TrainOperation(
             torch.cuda.empty_cache()
             # Save checkpoint every some SaveCheckPoint's iterations
             if PerEpochCounter % SaveCheckPoint == 0:
-
                 # Write training losses to tensorboard
                 Writer.add_scalar(
                     "LossEveryIter",
@@ -260,31 +190,11 @@ def TrainOperation(
                 # If you don't flush the tensorboard doesn't update until a lot of iterations!
                 Writer.flush()
 
-                # Save the Model learnt in this epoch
-                SaveName = (
-                    CheckPointPath
-                    + str(Epochs)
-                    + "a"
-                    + str(PerEpochCounter)
-                    + "model.ckpt"
-                )
-
-                torch.save(
-                    {
-                        "epoch": Epochs,
-                        "model_state_dict": model.state_dict(),
-                        "optimizer_state_dict": Optimizer.state_dict(),
-                        "loss": LossThisBatch,
-                    },
-                    SaveName,
-                )
-                print("\n" + SaveName + " Model Saved...")
-
         model.eval()
         val_loss = 0
         with torch.no_grad():
             val_batch, val_labels = GenerateBatch(
-                BasePath, MiniBatchSize, Val=True
+                BasePath, 1000, "Val"
             )
             for val_image,val_label in zip(val_batch, val_labels):
 
@@ -299,7 +209,6 @@ def TrainOperation(
         Writer.add_scalar(
             "LossEveryEpoch",
             val_loss,
-            # result["val_loss"],
             Epochs,
         )
         # If you don't flush the tensorboard doesn't update until a lot of iterations!
@@ -326,6 +235,19 @@ def plot_train_losses(train):
     plt.title('Loss vs. No. of epochs')
     plt.savefig("loss.png")
 
+ 
+
+def PrettyPrint(NumEpochs, DivTrain, MiniBatchSize, NumTrainSamples, LatestFile):
+    """
+    Prints all stats with all arguments
+    """
+    print("Number of Epochs Training will run for " + str(NumEpochs))
+    print("Factor of reduction in training data is " + str(DivTrain))
+    print("Mini Batch Size " + str(MiniBatchSize))
+    print("Number of Training Images " + str(NumTrainSamples))
+    if LatestFile is not None:
+        print("Loading latest checkpoint with the name " + LatestFile)
+
 def main():
     """
     Inputs:
@@ -337,8 +259,8 @@ def main():
     Parser = argparse.ArgumentParser()
     Parser.add_argument(
         "--BasePath",
-        default='Phase2/Data/',
-        help="Base path of images, Default:/home/lening/workspace/rbe549/YourDirectoryID_p1/Phase2/Data",
+        default='./Phase2/Data/',
+        help="Base path of images, Default:./Phase2/Data/",
     )
     Parser.add_argument(
         "--CheckPointPath",
@@ -348,14 +270,14 @@ def main():
 
     Parser.add_argument(
         "--ModelType",
-        default="Unsup",
+        default="Sup",
         help="Model type, Supervised or Unsupervised? Choose from Sup and Unsup, Default:Unsup",
     )
     Parser.add_argument(
         "--NumEpochs",
         type=int,
-        default=10,
-        help="Number of Epochs to Train for, Default:10",
+        default=25,
+        help="Number of Epochs to Train for, Default:50",
     )
     Parser.add_argument(
         "--DivTrain",
@@ -366,7 +288,7 @@ def main():
     Parser.add_argument(
         "--MiniBatchSize",
         type=int,
-        default=16,
+        default=32,
         help="Size of the MiniBatch to use, Default:1",
     )
     Parser.add_argument(
@@ -377,7 +299,7 @@ def main():
     )
     Parser.add_argument(
         "--LogsPath",
-        default="Logs/",
+        default="./Phase2/Logs/",
         help="Path to save Logs for Tensorboard, Default=Logs/",
     )
 

@@ -23,12 +23,13 @@ import sys
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
+import numpy as np
 
 # Don't generate pyc codes
 sys.dont_write_bytecode = True
 
 
-def LossFn(out, labels):
+def SupLossFn(out, labels):
     criterion = nn.MSELoss()
 
     labels = labels.float()  
@@ -36,19 +37,19 @@ def LossFn(out, labels):
     return loss
 
 
-class HomographyModel(pl.LightningModule):
+class SupHomographyModel(pl.LightningModule):
     def __init__(self):
-        super(HomographyModel, self).__init__()
-        self.model = Net()
+        super(SupHomographyModel, self).__init__()
+        self.model = SupNet()
 
     def forward(self, a):
         return self.model(a)
 
     def validation(self, img_batch, label_batch):
         delta = self.model(img_batch)
-        loss = LossFn(delta, label_batch)
-        print("Validation loss", loss)
-        return {"val_loss": loss}
+        loss = SupLossFn(delta, label_batch)
+        # print("Validation loss", loss)
+        return loss
 
     @staticmethod
     def validation_epoch_end(outputs):
@@ -57,7 +58,7 @@ class HomographyModel(pl.LightningModule):
         return {"avg_val_loss": avg_loss, "log": logs}
 
 
-class Net(nn.Module):
+class SupNet(nn.Module):
     def __init__(self):
         super().__init__()
         self.conv1 = nn.Sequential(

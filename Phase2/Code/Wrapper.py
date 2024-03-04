@@ -216,8 +216,8 @@ def main():
 
     # Args = Parser.parse_args()
     # NumFeatures = Args.NumFeatures
-    generate_train_dataset()
-    # generate_val_dataset()          
+    # generate_train_dataset()
+    generate_val_dataset()          
 
 
     """
