@@ -136,15 +136,6 @@ def GenerateBatch(BasePath, MiniBatchSize, Val): #DirNamesTrain, TrainCoordinate
         img1 = np.expand_dims(img1, 2)
         img2 = warpedset[i]
         img2 = np.expand_dims(img2, 2)
-<<<<<<< HEAD
-        I = np.concatenate((img1, img2), axis = 2)
-        label = np.genfromtxt('Phase2/Data/train_dataset/H_4points/' + image_list[RandIdx][:-4] + '.txt', delimiter=',')
-        # Append All Images and Mask
-        # I = np.transpose(I, (2, 0, 1))
-        I1Batch.append(torch.from_numpy(I))
-        # CoordinatesBatch.append(torch.from_numpy(label))
-        CoordinatesBatch.append(torch.from_numpy(label).to(device))
-=======
         IMG = np.concatenate((img1, img2), axis = 2)
         I1Batch.append(torch.from_numpy(IMG))
         label = np.genfromtxt('Phase2/Data/train_dataset/H_4points/' + str(i+1) + '.txt', delimiter=',')
@@ -153,7 +144,6 @@ def GenerateBatch(BasePath, MiniBatchSize, Val): #DirNamesTrain, TrainCoordinate
         # I = np.transpose(I, (2, 0, 1))
         # I1Batch.append(torch.from_numpy(IMG))
         # CoordinatesBatch.append(torch.from_numpy(label))
->>>>>>> 54d1505 (staging changes)
 
     # Generating validation batch
     if Val:
@@ -199,31 +189,19 @@ def GenerateBatch(BasePath, MiniBatchSize, Val): #DirNamesTrain, TrainCoordinate
     
         # print("returning val")
         val_batch = torch.stack(val_batch)
-<<<<<<< HEAD
-        # val_batch = val_batch.to(torch.float32)
-        val_batch = val_batch.to(device,dtype=torch.float32)
-        return val_batch, torch.stack(val_labels)
-=======
         val_batch = val_batch.to(torch.float32)
         val_dataset = [val_batch, torch.stack(val_labels)]
         val_dataset = YourDataset(val_batch, torch.stack(val_labels))
         val_loader = DataLoader(val_dataset, batch_size=1)
         return val_loader #val_batch, torch.stack(val_labels)
->>>>>>> 54d1505 (staging changes)
     else:
         # print("returning train")
         I1Batch = torch.stack(I1Batch)
-<<<<<<< HEAD
-        # I1Batch = I1Batch.to(torch.float32)
-        I1Batch = I1Batch.to(device,dtype=torch.float32)
-        return I1Batch, torch.stack(CoordinatesBatch)
-=======
         I1Batch = I1Batch.to(torch.float32)
         # train_dataset = [I1Batch, torch.stack(CoordinatesBatch)]
         train_dataset = YourDataset(I1Batch, torch.stack(CoordinatesBatch))
         train_loader = DataLoader(train_dataset, batch_size=MiniBatchSize, shuffle = True)
         return train_loader #I1Batch, torch.stack(CoordinatesBatch)
->>>>>>> 54d1505 (staging changes)
 
 
 def PrettyPrint(NumEpochs, DivTrain, MiniBatchSize, NumTrainSamples, LatestFile):
@@ -288,28 +266,6 @@ def TrainOperation(
     else:
         StartEpoch = 0
         print("New model initialized....")
-<<<<<<< HEAD
-
-    #Enable cuda
-    model.to(device)
-
-    for Epochs in tqdm(range(StartEpoch, NumEpochs)):
-        NumIterationsPerEpoch = int(NumTrainSamples / MiniBatchSize / DivTrain)
-        for PerEpochCounter in tqdm(range(NumIterationsPerEpoch)):
-            I1Batch, CoordinatesBatch = GenerateBatch(
-                BasePath, MiniBatchSize, Val=False
-            )
-
-            I1Batch.to(device)
-            CoordinatesBatch.to(device)
-            # Predict output with forward pass
-            model.train()
-
-            # print(I1Batch.shape)
-            PredicatedCoordinatesBatch = model(I1Batch)
-            LossThisBatch = LossFn(PredicatedCoordinatesBatch, CoordinatesBatch)
-
-=======
     train_loader = GenerateBatch(
             BasePath, MiniBatchSize, Val=False
         )
@@ -331,7 +287,6 @@ def TrainOperation(
             PredicatedCoordinatesBatch = model(Image)
             LossThisBatch = LossFn(PredicatedCoordinatesBatch, Label)
             train_losses.append(LossThisBatch)
->>>>>>> 54d1505 (staging changes)
             Optimizer.zero_grad()
             LossThisBatch.backward()
             Optimizer.step()
@@ -366,12 +321,6 @@ def TrainOperation(
         model.eval()
         val_loss = 0
         with torch.no_grad():
-<<<<<<< HEAD
-            val_batch, val_labels = GenerateBatch(
-                BasePath, MiniBatchSize, Val=True
-            )
-            for val_image,val_label in zip(val_batch, val_labels):
-=======
             val_loader = GenerateBatch(
                 BasePath, MiniBatchSize=1, Val=True
             )
@@ -381,7 +330,6 @@ def TrainOperation(
             validation_loss.append(result['val_loss'])
             train_loss.append(result['train_loss'])
             # result = model.validation(val_batch, val_labels)
->>>>>>> 54d1505 (staging changes)
 
                 val_image = torch.stack([val_image]).to(device)
                 val_label = torch.stack([val_label]).to(device)
@@ -462,11 +410,7 @@ def main():
     Parser.add_argument(
         "--MiniBatchSize",
         type=int,
-<<<<<<< HEAD
-        default=16,
-=======
         default=64,
->>>>>>> 54d1505 (staging changes)
         help="Size of the MiniBatch to use, Default:1",
     )
     Parser.add_argument(
