@@ -52,7 +52,7 @@ def generate_dataset(number_of_files, path, synthetic_data_path):
     os.makedirs(synthetic_data_path+'H4Pt/', exist_ok=True)
     os.makedirs(synthetic_data_path+'patch_A/', exist_ok=True)
     os.makedirs(synthetic_data_path+'patch_B/', exist_ok=True)
-    os.makedirs(synthetic_data_path+'patch_a_corners/', exist_ok=True)
+    os.makedirs(synthetic_data_path+'patch_A_corners/', exist_ok=True)
     for i in range(1,number_of_files+1):
         img = cv2.imread(path+str(i)+'.jpg',cv2.IMREAD_GRAYSCALE)
         cv2.imwrite(synthetic_data_path+'Grayscale/'+str(i)+'.jpg', img)
@@ -61,7 +61,7 @@ def generate_dataset(number_of_files, path, synthetic_data_path):
         cv2.imwrite(synthetic_data_path+'patch_A/'+str(i)+'.jpg', patch_A)
         cv2.imwrite(synthetic_data_path+'patch_B/'+str(i)+'.jpg', patch_B)
         np.savetxt(synthetic_data_path + 'H4Pt/' + str(i) + ".txt", H4Pt, delimiter = ",")
-        np.savetxt(synthetic_data_path + 'patch_a_corners/' + str(i) + ".txt", patch_a_corners, delimiter = ",")
+        np.savetxt(synthetic_data_path + 'patch_A_corners/' + str(i) + ".txt", patch_a_corners, delimiter = ",")
     return
 
 
@@ -74,8 +74,12 @@ def main():
     val_path = './Phase2/Data/Val/'
     val_synthetic_data_path = './Phase2/Data/SyntheticVal/'
     os.makedirs(val_synthetic_data_path, exist_ok=True)
-    generate_dataset(1000, val_path,val_synthetic_data_path)       
-    # TO DO TEST
+    generate_dataset(1000, val_path, val_synthetic_data_path)       
+    
+    test_path = './Phase2/Data/Test/'
+    test_synthetic_data_path = './Phase2/Data/SyntheticTest/'
+    os.makedirs(test_synthetic_data_path, exist_ok=True)
+    generate_dataset(1000, test_path, test_synthetic_data_path)   
 
 if __name__ == "__main__":
     main()

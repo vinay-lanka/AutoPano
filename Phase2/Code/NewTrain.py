@@ -6,6 +6,7 @@ from torchvision import datasets
 from torchvision import transforms as tf
 from torch.optim import AdamW, SGD, Adam
 from Network.Network import *
+from Network.Unsup_Network import *
 from Wrapper import *
 import cv2
 import sys
@@ -40,7 +41,7 @@ else:
     device = torch.device("cpu")
 print(f"Running on device: {device}")
 
-def GenerateBatch(BasePath, MiniBatchSize, State):
+def GenerateBatch(BasePath, MiniBatchSize, State, Model):
     """
     Inputs:
     BasePath - Path to COCO folder without "/" at the end
@@ -54,12 +55,18 @@ def GenerateBatch(BasePath, MiniBatchSize, State):
     ImageBatch - Batch of images
     GroundTruthBatch - Batch of coordinates
     """
-    ImageBatch = []
+    PaPbBatch = []
     GroundTruthBatch = []
+    if Model == "UnSup":
+        PaCornersBatch = []
+        PaBatch = []
+        PbBatch = []
     ImageNum = 0
     patches_a_path = os.path.join(BasePath, f"Synthetic{State}/patch_A")
     patches_b_path = os.path.join(BasePath, f"Synthetic{State}/patch_B")
     GTs_path = os.path.join(BasePath, f"Synthetic{State}/H4Pt/")
+    if Model == "UnSup":
+        Pa_base_corners_path = os.path.join(BasePath, f"Synthetic{State}/patch_A_corners/")
     if os.path.exists(patches_a_path): 
         image_list = os.listdir(patches_a_path)
     else:
@@ -73,26 +80,53 @@ def GenerateBatch(BasePath, MiniBatchSize, State):
             patch_a_path = os.path.join(patches_a_path,image_list[RandIdx])
             patch_b_path = os.path.join(patches_b_path,image_list[RandIdx])
             GT_path = GTs_path + image_list[RandIdx][:-4] + f".txt"
+            if Model == "UnSup":
+                Pa_corners_path = Pa_base_corners_path + image_list[RandIdx][:-4] + f".txt"
         elif State == "Val":
             # print(ImageNum)
             patch_a_path = os.path.join(patches_a_path,image_list[ImageNum-1])
             patch_b_path = os.path.join(patches_b_path,image_list[ImageNum-1])
             GT_path = GTs_path + image_list[ImageNum-1][:-4] + f".txt"
+            if Model == "UnSup":
+                Pa_corners_path = Pa_base_corners_path + image_list[ImageNum-1][:-4] + f".txt"
 
         patch_A = cv2.imread(patch_a_path, cv2.IMREAD_GRAYSCALE)
         patch_B = cv2.imread(patch_b_path, cv2.IMREAD_GRAYSCALE)
 
+        ####DATA AUGMENTATION 
+        patch_A = np.float32(patch_A)
+        patch_A=(patch_A-np.mean(patch_A))/255
+        patch_B = np.float32(patch_B)
+        patch_B=(patch_B-np.mean(patch_B))/255
+
         patch_A = np.expand_dims(patch_A, 2)
         patch_B = np.expand_dims(patch_B, 2)
-        I = np.concatenate((patch_A, patch_B), axis = 2)
+        Pa_Pb = np.concatenate((patch_A, patch_B), axis = 2)
         GT = np.genfromtxt(GT_path, delimiter=',')
-
-        ImageBatch.append(torch.from_numpy(I))
+        PaPbBatch.append(torch.from_numpy(Pa_Pb))
         GroundTruthBatch.append(torch.from_numpy(GT).to(device))
 
-    ImageBatch = torch.stack(ImageBatch)
-    ImageBatch = ImageBatch.to(device,dtype=torch.float32)
-    return ImageBatch, torch.stack(GroundTruthBatch)
+        if Model == "UnSup":
+            Pa_corners = np.genfromtxt(Pa_corners_path, delimiter=',').flatten(order = 'F')
+            PaCornersBatch.append(torch.from_numpy(Pa_corners).to(device))
+            patch_A = np.squeeze(patch_A)
+            patch_A = np.expand_dims(patch_A, axis=0)
+            patch_B = np.squeeze(patch_B)
+            patch_B = np.expand_dims(patch_B, axis=0)
+            PaBatch.append(torch.from_numpy(patch_A))
+            PbBatch.append(torch.from_numpy(patch_B))
+
+
+    PaPbBatch = torch.stack(PaPbBatch)
+    PaPbBatch = PaPbBatch.to(device,dtype=torch.float32)
+
+    if Model == "UnSup":
+        PaBatch = torch.stack(PaBatch)
+        PaBatch = PaBatch.to(device,dtype=torch.float32)
+        PbBatch = torch.stack(PbBatch)
+        PbBatch = PbBatch.to(device,dtype=torch.float32)
+        return PaPbBatch, torch.stack(PaCornersBatch), PaBatch, PbBatch
+    return PaPbBatch, torch.stack(GroundTruthBatch)
 
 
 def TrainOperation(
@@ -135,6 +169,7 @@ def TrainOperation(
         model = UnSupHomographyModel()
 
     Optimizer = Adam(model.parameters(), lr=0.0001)
+    # Optimizer = torch.optim.SGD(model.parameters(),lr = 0.0001)
 
     # Tensorboard
     # Create a summary to monitor loss tensor
@@ -158,28 +193,35 @@ def TrainOperation(
         for PerEpochCounter in tqdm(range(NumIterationsPerEpoch)):
 
             if ModelType == 'Sup':
-                I1Batch, CoordinatesBatch = GenerateBatch(
-                    BasePath, MiniBatchSize, "Train"
+                PaPbBatch, CoordinatesBatch = GenerateBatch(
+                    BasePath, MiniBatchSize, "Train", "Sup"
                 )
+                PaPbBatch.to(device)
+                CoordinatesBatch.to(device)
+                
+                model.train()
 
-            I1Batch.to(device)
-            CoordinatesBatch.to(device)
-            # Predict output with forward pass
-            model.train()
+                PredicatedCoordinatesBatch = model(PaPbBatch)
+                LossThisBatch = SupLossFn(PredicatedCoordinatesBatch, CoordinatesBatch)
+            elif ModelType == "UnSup":
+                PaPbBatch, CornersBatch, PaBatch, PbBatch = GenerateBatch(
+                    BasePath, MiniBatchSize, "Train", "UnSup"
+                )
+                PaPbBatch.to(device)
+                CornersBatch.to(device)
+                PaBatch.to(device)
+                PbBatch.to(device)
 
-            PredicatedCoordinatesBatch = model(I1Batch)
-            LossThisBatch = SupLossFn(PredicatedCoordinatesBatch, CoordinatesBatch)
-            # print(LossThisBatch)
+                model.train()
+
+                PredictedPb = model(PaBatch, PaPbBatch, CornersBatch)
+                LossThisBatch = SupLossFn(PredictedPb, PbBatch)
+
 
             Optimizer.zero_grad()
             LossThisBatch.backward()
             Optimizer.step()
 
-            del I1Batch
-            del CoordinatesBatch
-            del PredicatedCoordinatesBatch
-            torch.cuda.empty_cache()
-            # Save checkpoint every some SaveCheckPoint's iterations
             if PerEpochCounter % SaveCheckPoint == 0:
                 # Write training losses to tensorboard
                 Writer.add_scalar(
@@ -193,17 +235,29 @@ def TrainOperation(
         model.eval()
         val_loss = 0
         with torch.no_grad():
-            val_batch, val_labels = GenerateBatch(
-                BasePath, 1000, "Val"
-            )
-            for val_image,val_label in zip(val_batch, val_labels):
-
-                val_image = torch.stack([val_image]).to(device)
-                val_label = torch.stack([val_label]).to(device)
-                loss = model.validation(val_image, val_label)
-                # print(loss)
-                val_loss+=loss
-            val_loss = val_loss / len(val_labels)
+            if ModelType == 'Sup':
+                val_PaPbBatch, val_CoordinatesBatch = GenerateBatch(
+                    BasePath, 1000, "Val", "Sup"
+                )
+                for val_PaPb,val_Coordinates in zip(val_PaPbBatch, val_CoordinatesBatch):
+                    val_PaPb = torch.stack([val_PaPb]).to(device)
+                    val_Coordinates = torch.stack([val_Coordinates]).to(device)
+                    loss = model.validation(val_PaPb, val_Coordinates)
+                    val_loss+=loss
+                val_loss = val_loss / len(val_CoordinatesBatch)
+            elif ModelType == 'UnSup':
+                val_PaPbBatch, val_CornersBatch, val_PaBatch, val_PbBatch = GenerateBatch(
+                    BasePath, 1000, "Val", "UnSup"
+                )
+                for val_PaPb, val_Corners, val_Pa, val_Pb in zip(val_PaPbBatch, val_CornersBatch, val_PaBatch, val_PbBatch):
+                    val_PaPb = torch.stack([val_PaPb]).to(device)
+                    val_Corners = torch.stack([val_Corners]).to(device)
+                    val_Pa = torch.stack([val_Pa]).to(device)
+                    val_Pb = torch.stack([val_Pb]).to(device)
+                    loss = model.validation(val_Pa, val_PaPb, val_Corners, val_Pb)
+                    val_loss+=loss
+                val_loss = val_loss / len(val_PbBatch)
+            
         print("Validation loss - ", val_loss)
         # Write validation losses to tensorboard
         Writer.add_scalar(
@@ -215,7 +269,7 @@ def TrainOperation(
         Writer.flush()
 
         # Save model every epoch
-        SaveName = CheckPointPath + str(Epochs) + "model.ckpt"
+        SaveName = CheckPointPath + ModelType + str(Epochs) + "model.ckpt"
         torch.save(
             {
                 "epoch": Epochs,
@@ -226,15 +280,6 @@ def TrainOperation(
             SaveName,
         )
         print("\n" + SaveName + " Model Saved...")
-
-def plot_train_losses(train):
-    plt.plot(train, '-x', label =  'TrainSet')
-    plt.xlabel('epoch')
-    plt.ylabel('Loss')
-    plt.legend(ncol=2, loc="upper right")
-    plt.title('Loss vs. No. of epochs')
-    plt.savefig("loss.png")
-
  
 
 def PrettyPrint(NumEpochs, DivTrain, MiniBatchSize, NumTrainSamples, LatestFile):
@@ -310,8 +355,8 @@ def main():
     MiniBatchSize = Args.MiniBatchSize
     LoadCheckPoint = Args.LoadCheckPoint
     CheckPointPath = Args.CheckPointPath
-    LogsPath = Args.LogsPath
     ModelType = Args.ModelType
+    LogsPath = Args.LogsPath + ModelType + "/"
 
     # Setup all needed parameters including file reading
     (

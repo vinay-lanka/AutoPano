@@ -43,6 +43,27 @@ def UnSupLossFn(batch_b_pred, patch_b):
 
     return loss
 
+class UnSupHomographyModel(pl.LightningModule):
+    def __init__(self):
+        super(UnSupHomographyModel, self).__init__()
+        self.model = UnSupNet()
+
+    def forward(self, Pa, Pa_Pb, Ca):
+        return self.model(Pa, Pa_Pb, Ca)
+
+    def validation(self, Pa, Pa_Pb, Ca, Pb):
+        delta = self.model(Pa, Pa_Pb, Ca)
+        loss = UnSupLossFn(delta, Pb)
+        # print("Validation loss", loss)
+        return loss
+
+    @staticmethod
+    def validation_epoch_end(outputs):
+        avg_loss = torch.stack([x["val_loss"] for x in outputs]).mean()
+        logs = {"val_loss": avg_loss}
+        return {"avg_val_loss": avg_loss, "log": logs}
+
+
 class UnSupNet(nn.Module):
     def __init__(self):
         super().__init__()
@@ -71,8 +92,8 @@ class UnSupNet(nn.Module):
         self.fc1 = nn.Linear(16 * 16 * 128, 1024)
         self.fc2 = nn.Linear(1024, 8)
 
-    def forward(self, x):
-
+    def forward(self, Pa, Pa_Pb, Ca):
+        x = Pa_Pb
         mini_batch_size = x.shape[0]
         dim_x = x.shape[1]
         dim_y = x.shape[2]
@@ -92,67 +113,23 @@ class UnSupNet(nn.Module):
         x = self.conv4(x)
         x = self.conv4(x)
         x = self.dropout(x)
-
         x = x.view(x.size(0), -1)
-
         x = self.fc1(x)
-        x = self.fc2(x)
-        return x
+        x = self.dropout(x) # Maybe remove?
+        h4pt_pred = self.fc2(x)
+        # print("h4pt_pred", x)
 
-class TensorDLT(nn.Module):
-    def init(self) -> None:
-        '''
-        H_4pt_X is H_4pt for batch X
-        H4pt is the predicted H_4pt by the homography net, use it to calculate the corners in the predicted/ warped image
-        C_a are the corner points of the patch in Image A or in this case the training image
-        '''
-        super().init()
+        Cb_pred = (torch.add(Ca,h4pt_pred))
 
-    def tensorDLT(self, H_4pt_X, patch_a_corners):
-        H = torch.tensor([])
-        for H4pt in H_4pt_X:
-            Cb = patch_a_corners + H4pt
-            A = []
-            b = []
-            for i in range(0,8,2): #since there are 4 corner pairs
-                Ai = [[0, 0, 0, -patch_a_corners[i], -patch_a_corners[i+1], -1, Cb[i+1]*patch_a_corners[i], Cb[i+1]*patch_a_corners[i+1]]]
-                Ai.append([patch_a_corners[i], patch_a_corners[i+1], 1, 0, 0, 0, -Cb[i]*patch_a_corners[i], -Cb[i]*patch_a_corners[i+1]])
-                A.extend(Ai)
+        Ca = Ca.reshape(-1,4,2)
+        Cb_pred = Cb_pred.reshape(-1,4,2)
 
-                bi = [-Cb[i+1],-Cb[i]]
-                b.extend(bi)
+        H_pred = (k.geometry.homography.find_homography_dlt(Ca, Cb_pred, weights=None))
+        # H_pred_inv = torch.inverse(H_pred)
+        H_pred_inv = torch.pinverse(H_pred)
 
-            A = torch.tensor(A).to(device)
-            b = torch.tensor(b).to(device)
-            print(A)
-            h = torch.dot(torch.inverse(A), b)
-            H = torch.cat(H,h.reshape(1,-1), axis=0)
-        H = H[1:,:]
-        print(H.shape)
-        return H
-
-    def forward(self,H_4pt_X, patch_a_corners):
-        return self.tensorDLT(H_4pt_X, patch_a_corners)
-
-def unsupervised_HomographyNet(patch_set, orig_img, patch_a_corners): # orig_img is original resized image, patch set is set of both image patches that we get after I = np.concatenate((patch_A, patch_B), axis = 2)
-    h4pt_pred = UnSupNet(patch_set)
-
-    print("h4pt_pred", h4pt_pred)
-    corners_b_pred = (torch.sub(patch_a_corners,h4pt_pred))
-
-    patch_a_corners = patch_a_corners.reshape(-1,4,2)
-    corners_b_pred = corners_b_pred.reshape(-1,4,2)
-    print("batch_corners_b_pred", corners_b_pred)
-    print("batch_corners", patch_a_corners)
-
-    # h_pred = (k.geometry.homography.find_homography_dlt(patch_a_corners, corners_b_pred, weights=None) )
-    h_pred = (TensorDLT.tensorDLT(corners_b_pred, patch_a_corners) )
-    print(h_pred)
-    h_pred_inv = torch.inverse(h_pred)
-
-
-    patch_b_pred = k.geometry.transform.warp_perspective(orig_img, h_pred_inv, dsize = (128,128),
-                                                                    mode='bilinear', padding_mode='zeros', 
-                                                                    align_corners=True, fill_value=torch.zeros(3))
-    
-    return patch_b_pred
+        Pa = Pa.to(torch.double)
+        patch_b_pred = k.geometry.transform.imgwarp.homography_warp(Pa, H_pred_inv, dsize=(128, 128),
+                                                              padding_mode="reflection", normalized_homography=False)
+        
+        return patch_b_pred.float()
