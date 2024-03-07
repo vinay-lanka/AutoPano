@@ -29,6 +29,7 @@ import numpy as np
 import torch.nn.functional as F
 from torch.autograd import Variable
 import kornia as k
+import cv2
 
 if torch.cuda.is_available():
     device = torch.device("cuda")
@@ -37,24 +38,49 @@ else:
 print(f"Running on device: {device}")
 
 
-def UnSupLossFn(batch_b_pred, patch_b):
+def UnSupLossFn(Pb_pred, Pb):
     criterion = nn.L1Loss()
-    loss = criterion(batch_b_pred, patch_b)
-
+    loss = criterion(Pb_pred, Pb)
     return loss
+
+def homography_dlt(Ca, h4pt_pred):
+    Cb_pred = (torch.add(Ca,h4pt_pred))
+
+    Ca = Ca.reshape(-1,4,2)
+    Cb_pred = Cb_pred.reshape(-1,4,2)
+
+    H_pred = (k.geometry.homography.find_homography_dlt(Ca, Cb_pred, weights=None))
+    # H_pred_inv = torch.inverse(H_pred)
+    # H_pred_inv = torch.pinverse(H_pred)
+    return H_pred
+
+def warp_stn(Pa, H_pred):
+    Pa = Pa.to(torch.double)
+    Pb_pred = k.geometry.transform.imgwarp.homography_warp(Pa, H_pred, dsize=(128, 128),
+                                                            padding_mode="reflection", normalized_homography=False)
+    Pb_pred = Pb_pred.float()
+    return Pb_pred
 
 class UnSupHomographyModel(pl.LightningModule):
     def __init__(self):
         super(UnSupHomographyModel, self).__init__()
-        self.model = UnSupNet()
+        self.network = UnSupNet()
 
-    def forward(self, Pa, Pa_Pb, Ca):
-        return self.model(Pa, Pa_Pb, Ca)
+    def forward(self, Pa_Pb):
+        return self.network(Pa_Pb)
+    
+    def training_step(self, Pa, Pa_Pb, Ca, Pb):
+        H4pt_pred = self.forward(Pa_Pb)
+        H_pred = homography_dlt(Ca, H4pt_pred)
+        Pb_pred = warp_stn(Pa, H_pred)
+        loss = UnSupLossFn(Pb_pred, Pb)
+        return loss
 
-    def validation(self, Pa, Pa_Pb, Ca, Pb):
-        delta = self.model(Pa, Pa_Pb, Ca)
-        loss = UnSupLossFn(delta, Pb)
-        # print("Validation loss", loss)
+    def validation_step(self, Pa, Pa_Pb, Ca, Pb):
+        H4pt_pred = self.forward(Pa_Pb)
+        H_pred = homography_dlt(Ca, H4pt_pred)
+        Pb_pred = warp_stn(Pa, H_pred)
+        loss = UnSupLossFn(Pb_pred, Pb)
         return loss
 
     @staticmethod
@@ -92,7 +118,7 @@ class UnSupNet(nn.Module):
         self.fc1 = nn.Linear(16 * 16 * 128, 1024)
         self.fc2 = nn.Linear(1024, 8)
 
-    def forward(self, Pa, Pa_Pb, Ca):
+    def forward(self, Pa_Pb):
         x = Pa_Pb
         mini_batch_size = x.shape[0]
         dim_x = x.shape[1]
@@ -114,22 +140,7 @@ class UnSupNet(nn.Module):
         x = self.conv4(x)
         x = self.dropout(x)
         x = x.view(x.size(0), -1)
-        x = self.fc1(x)
-        x = self.dropout(x) # Maybe remove?
+        x = F.relu(self.fc1(x))
         h4pt_pred = self.fc2(x)
-        # print("h4pt_pred", x)
 
-        Cb_pred = (torch.add(Ca,h4pt_pred))
-
-        Ca = Ca.reshape(-1,4,2)
-        Cb_pred = Cb_pred.reshape(-1,4,2)
-
-        H_pred = (k.geometry.homography.find_homography_dlt(Ca, Cb_pred, weights=None))
-        # H_pred_inv = torch.inverse(H_pred)
-        H_pred_inv = torch.pinverse(H_pred)
-
-        Pa = Pa.to(torch.double)
-        patch_b_pred = k.geometry.transform.imgwarp.homography_warp(Pa, H_pred_inv, dsize=(128, 128),
-                                                              padding_mode="reflection", normalized_homography=False)
-        
-        return patch_b_pred.float()
+        return h4pt_pred

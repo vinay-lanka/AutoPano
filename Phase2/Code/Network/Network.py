@@ -23,32 +23,36 @@ import sys
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import numpy as np
 
 # Don't generate pyc codes
 sys.dont_write_bytecode = True
 
 
-def SupLossFn(out, labels):
+def SupLossFn(H4pt_pred, H4pt):
     criterion = nn.MSELoss()
-
-    labels = labels.float()  
-    loss = torch.sqrt(criterion(out, labels))
+    H4pt = H4pt.float()  
+    loss = torch.sqrt(criterion(H4pt_pred, H4pt))
     return loss
 
 
 class SupHomographyModel(pl.LightningModule):
     def __init__(self):
         super(SupHomographyModel, self).__init__()
-        self.model = SupNet()
+        self.network = SupNet()
 
-    def forward(self, a):
-        return self.model(a)
+    def forward(self, Pa_Pb):
+        return self.network(Pa_Pb)
+    
+    def training_step(self, Pa_Pb, H4pt):
+        H4pt_pred = self.forward(Pa_Pb)
+        loss = SupLossFn(H4pt_pred, H4pt)
+        return loss
 
-    def validation(self, img_batch, label_batch):
-        delta = self.model(img_batch)
-        loss = SupLossFn(delta, label_batch)
-        # print("Validation loss", loss)
+    def validation_step(self, Pa_Pb, H4pt):
+        H4pt_pred = self.forward(Pa_Pb)
+        loss = SupLossFn(H4pt_pred, H4pt)
         return loss
 
     @staticmethod
@@ -110,6 +114,6 @@ class SupNet(nn.Module):
 
         x = x.view(x.size(0), -1)
 
-        x = self.fc1(x)
+        x = F.relu(self.fc1(x))
         x = self.fc2(x)
         return x
