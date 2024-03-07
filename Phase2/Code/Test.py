@@ -1,20 +1,19 @@
-#!/usr/bin/env python3
-"""
-RBE/CS Fall 2022: Classical and Deep Learning Approaches for
-Geometric Computer Vision
-Project 1: MyAutoPano: Phase 2 Starter Code
+#!/usr/bin/evn python
 
+"""
+CMSC733 Spring 2024: Computer Processing of Pictorial Information
+Project1: MyAutoPano: Phase 2 Code
 
 Author(s):
+Vinay Lanka (vlanka@umd.edu)
+M.Eng. in Robotics,
+University of Maryland, College Park
+
 Mayank Deshpande (msdeshp4@umd.edu)
 M.Eng. in Robotics,
 University of Maryland, College Park
 
-Vikram Setty (msdeshp4@umd.edu)
-M.Eng. in Robotics,
-University of Maryland, College Park
-
-Vinay Lanka (msdeshp4@umd.edu)
+Vikram Setty (vikrams@umd.edu)
 M.Eng. in Robotics,
 University of Maryland, College Park
 """

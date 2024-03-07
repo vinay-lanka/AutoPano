@@ -1,3 +1,23 @@
+#!/usr/bin/evn python
+
+"""
+CMSC733 Spring 2024: Computer Processing of Pictorial Information
+Project1: MyAutoPano: Phase 2 Code
+
+Author(s):
+Vinay Lanka (vlanka@umd.edu)
+M.Eng. in Robotics,
+University of Maryland, College Park
+
+Mayank Deshpande (msdeshp4@umd.edu)
+M.Eng. in Robotics,
+University of Maryland, College Park
+
+Vikram Setty (vikrams@umd.edu)
+M.Eng. in Robotics,
+University of Maryland, College Park
+"""
+
 import torch
 import torchvision
 from torch.utils.tensorboard import SummaryWriter
