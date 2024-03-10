@@ -1,23 +1,5 @@
 #!/usr/bin/evn python
 
-"""
-CMSC733 Spring 2024: Computer Processing of Pictorial Information
-Project1: MyAutoPano: Phase 1 Code
-
-Author(s):
-Vinay Lanka (vlanka@umd.edu)
-M.Eng. in Robotics,
-University of Maryland, College Park
-
-Mayank Deshpande (msdeshp4@umd.edu)
-M.Eng. in Robotics,
-University of Maryland, College Park
-
-Vikram Setty (vikrams@umd.edu)
-M.Eng. in Robotics,
-University of Maryland, College Park
-"""
-
 # Importing the required libraries
 import os
 import numpy as np
@@ -51,7 +33,6 @@ def detect_corners(rgb_img):
 # Adaptive Non-Maximal Suppression (ANMS) to remove duplicate representations of the same feature/corner
 def adaptive_non_max_supression(rgb_img,corners_info):
       strong_corner_coords = peak_local_max(corners_info,min_distance=15)
-      #print(strong_corner_coords.shape)
       N_strong = strong_corner_coords.shape[0]
       r_values = np.inf*np.ones((N_strong))
       for i in range(N_strong):
@@ -79,7 +60,6 @@ def adaptive_non_max_supression(rgb_img,corners_info):
                   new_anms_corners.append(anms_corner_locations[i])
       img_with_anms_corners = copy.deepcopy(rgb_img)
       for i in range(len(new_anms_corners)):
-            #img_with_anms_corners[int(anms_corner_locations[i][0]),int(anms_corner_locations[i][1]),:] = np.array([255,0,0])
             cv2.circle(img_with_anms_corners,(new_anms_corners[i][1],new_anms_corners[i][0]),2,(255,0,0),-1)
       return (new_anms_corners,img_with_anms_corners)
 
@@ -93,7 +73,6 @@ def corner_feature_descriptors(rgb_img,anms_corner_locations):
             feature_patch = gray_img[loc[0]-descriptor_patch_size//2:loc[0]+descriptor_patch_size//2,loc[1]-descriptor_patch_size//2:loc[1]+descriptor_patch_size//2]
             feature_patch = cv2.GaussianBlur(feature_patch,(3,3),0)
             feature_patch = cv2.resize(feature_patch,(descriptor_patch_size//5,descriptor_patch_size//5),interpolation=cv2.INTER_CUBIC).reshape(-1)
-            #print(feature_patch.shape)
             feature_patch = (feature_patch-feature_patch.mean())/feature_patch.std()
             feature_descriptor.append([loc,feature_patch])
       return feature_descriptor
@@ -122,8 +101,6 @@ def match_features(img1_features,img2_features):
                   continue
             if ssd_array[best_matches[match_index]]/ssd_array[best_matches[match_index+1]] < SSD_ratio_threshold:
                   matches.append([[loc1[1],loc1[0]],[img2_features[best_matches[match_index]][0][1],img2_features[best_matches[match_index]][0][0]]])
-            #if ssd_array[best_matches[0]]/ssd_array[best_matches[1]] < SSD_ratio_threshold:
-            #      matches.append([[loc1[1],loc1[0]],[img2_features[best_matches[0]][0][1],img2_features[best_matches[0]][0][0]]])
       return matches
 
 # Drawing the feature matches between two images
@@ -139,8 +116,6 @@ def draw_feature_matches2(rgb_img1,rgb_img2,matches):
 
 # Displaying the homoghraphy from img1 --> img2 to verify correct homography calculation
 def display_homography(rgb_img1,rgb_img2,H):
-      # Both images must be of the same sizes to concatenate them side by side
-      # H = np.linalg.inv(H)
       h_img = cv2.warpPerspective(copy.deepcopy(rgb_img1),H,(rgb_img2.shape[1],rgb_img2.shape[0]))
       img_concat = np.concatenate([h_img,copy.deepcopy(rgb_img2)],axis=1)
       plt.imshow(img_concat)
@@ -155,7 +130,6 @@ def get_inliers(img1_matches,img2_matches,homography):
       x_transformed = img1_points_transformed[0,:]/(img1_points_transformed[2,:]+np.exp(-7))
       y_transformed = img1_points_transformed[1,:]/(img1_points_transformed[2,:]+np.exp(-7))
       img1_points_transformed = np.array([x_transformed,y_transformed]).T
-      #print(img1_points_transformed.shape,"   ",img2_matches.shape)
       for i in range(img1_matches.shape[0]):
             if np.linalg.norm(img1_points_transformed[i]-img2_matches[i]) < homography_inlier_threshold:
                   num_inlier_points += 1
@@ -185,15 +159,12 @@ def RANSAC(matches):
       best_homography,_ = cv2.findHomography(img1_points,img2_points)
       if best_homography is None:
             best_homography = old_best_homography
-      #print(best_homography)
-      #print(best_homography)
       return best_homography, best_inlier_indices
 
 # Wrapper function to take two images and compute the best homography between them
 def homography_wrapper(img1,img2):
      rgb_img1 = copy.deepcopy(img1)
      rgb_img2 = copy.deepcopy(img2)
-     #rgb_img1 = cv2.resize(rgb_img1,(rgb_img2.shape[1],rgb_img2.shape[0]),interpolation=cv2.INTER_CUBIC)
      corner_info1, corner_loc1, corner_img1 = detect_corners(rgb_img1)
      anms_corner_locs1, anms_corners_img1 = adaptive_non_max_supression(rgb_img1,corner_info1)
      features1 = corner_feature_descriptors(rgb_img1,anms_corner_locs1)
@@ -208,7 +179,6 @@ def homography_wrapper(img1,img2):
      anms_corners_img1 = cv2.resize(anms_corners_img1,(anms_corners_img2.shape[1],anms_corners_img2.shape[0]),interpolation=cv2.INTER_CUBIC)
      #draw_feature_matches2(anms_corners_img1,anms_corners_img2,matches)
      #draw_feature_matches2(anms_corners_img1,anms_corners_img2,ransac_matches)
-     #print(len(best_inlier_indices))
      return best_homography
 
 # Warping one image to the perspective of the other
@@ -237,7 +207,6 @@ def stitch_images(images):
             best_homography = homography_wrapper(base_img,img)
             #display_homography(base_img,img,best_homography)
             result = warp_images(base_img,img,best_homography)
-            #result = warpTwoImages([base_img,img],best_homography)
             base_img = copy.deepcopy(result)
             #plt.imshow(base_img)
             #plt.show()
@@ -249,30 +218,19 @@ def stitch_images(images):
 
 # Stitching images together using Approach 2
 def stitch_images2(images):
-      #base_img = copy.deepcopy(images[0])
       homographies = []
       for i in range(len(images)-1):
             img1 = images[i]
             img2 = images[i+1]
-            #base_img = cv2.resize(base_img,(img.shape[1],img.shape[0]),interpolation=cv2.INTER_CUBIC)
             best_homography = homography_wrapper(img1,img2)
             homographies.append(best_homography)
-            #result = warp_images(base_img,img,best_homography)
-            #result = warpTwoImages([base_img,img],best_homography)
-            #base_img = copy.deepcopy(result)
-            #plt.imshow(base_img)
-            #plt.show()
       running_homography = np.eye(3,dtype=np.float32)
       result = copy.deepcopy(images[0])
       i = 1
       for homography in homographies:
-            #result = cv2.resize(result,(images[i].shape[1],images[i].shape[0]),interpolation=cv2.INTER_CUBIC)
             running_homography = np.matmul(running_homography,homography)
-            #display_homography(result,images[i],running_homography)
             result = copy.deepcopy(warp_images(result,images[i],running_homography))
             i += 1
-      #running_homography = np.dot(homographies[0],homographies[1])
-      #result = copy.deepcopy(warp_images(result,images[2],running_homography))
       result = cv2.resize(result,final_img_shape,interpolation=cv2.INTER_CUBIC)
       result = cv2.GaussianBlur(result,(3,3),0)
       cv2.imshow("test",result)
@@ -290,12 +248,4 @@ if __name__ == '__main__':
           imgs.append(cv2.imread(path_to_images+str(i+1)+'.jpg'))
     result = stitch_images(imgs)
     cv2.waitKey(0)
-    
-    '''
-    # More images can be read from a different path as well and added to the list in variable 'imgs'
-    img1 = cv2.imread("../Data/Train/Set1/1.jpg")
-    img2 = cv2.imread("../Data/Train/Set1/2.jpg")
-    img3 = cv2.imread("../Data/Train/Set1/3.jpg")
-    imgs = [img1,img2,img3]
-    '''
     
